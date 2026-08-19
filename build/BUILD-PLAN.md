@@ -19,6 +19,7 @@ largest gap, and the harness rejected a shipped constant on its first run. Post-
 | 3 | 3 | Real-world, adversarial and ugly-input test suites | **closed 2026-08-19 — 190 tests, 3 real bugs found** |
 | 4 | 4 | Security pass and the §T shipped-artifact check | **closed 2026-08-19 — 210 tests, 16 threats, clean-env §T green** |
 | 5 | — | The evaluation harness | **closed 2026-08-19 — 241 tests; LEXICAL_FLOOR recalibrated 0.01 → 0.4** |
+| 6 | — | MCP surface, plugin packaging, first real corpus | **closed 2026-08-19 — 252 tests; RRF question answered on real data** |
 
 ## The method
 
@@ -45,6 +46,7 @@ Those are `DEC-002` through `DEC-005` and they were made in Phase 0.
 | `DEC-008` | Carry both time axes: valid time on the record, transaction time from the log |
 | `DEC-009` | Keep both RRF implementations; they answer different questions. A third is a defect |
 | `DEC-010` | Vendor the file lock — a standalone repo has no sibling to import from |
+| `DEC-011` | Third-party code lives only in `mcp/`; `src/` stays dependency-free |
 
 ## Phase 1 — the five algorithms
 
