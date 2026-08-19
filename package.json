@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "check": "bun run typecheck && bun test",
     "demo": "bun demo.ts",
-    "engine": "bun src/cli.ts"
+    "engine": "bun src/cli.ts",
+    "bundle": "bun build mcp/server.ts --target=node --outfile mcp/server.bundle.mjs",
+    "mcp": "bun mcp/server.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -17,5 +19,9 @@
   },
   "bin": {
     "graph-engine": "./src/cli.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.4.3"
   }
 }

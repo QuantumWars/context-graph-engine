@@ -201,15 +201,11 @@ describe('error hygiene — what a message is allowed to contain', () => {
 });
 
 describe('supply chain and secrets', () => {
-  test('the engine ships ZERO runtime dependencies', () => {
-    const pkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as {
-      dependencies?: Record<string, string>;
-    };
-    expect(pkg.dependencies ?? {}).toEqual({});
-  });
-
-  test('src/ imports nothing but node: builtins and its own modules', () => {
+  test('the CORE ships zero runtime dependencies — src/ imports nothing external', () => {
+    // The load-bearing assertion, unchanged by DEC-011. The algorithms, the store, the chain and
+    // the retrieval path stay reviewable without trusting anyone.
     const files = tracked().filter((f) => f.startsWith('src/'));
+    expect(files.length).toBeGreaterThan(5);                      // anti-vacuity
     const external: string[] = [];
     for (const f of files) {
       for (const m of readFileSync(join(REPO, f), 'utf8').matchAll(/from\s+'([^']+)'/g)) {
@@ -220,9 +216,43 @@ describe('supply chain and secrets', () => {
     expect(external).toEqual([]);
   });
 
+  test('mcp/ is the ONLY directory permitted an external import — DEC-011', () => {
+    // The boundary is enforced here rather than remembered. A third-party import appearing in
+    // eval/, scripts/ or test/ fails this, which is what stops the property eroding one
+    // convenience at a time.
+    const files = tracked().filter((f) => f.endsWith('.ts') || f.endsWith('.mjs'));
+    expect(files.length).toBeGreaterThan(20);                     // anti-vacuity
+    const offenders: string[] = [];
+    for (const f of files) {
+      if (f.startsWith('mcp/')) continue;
+      for (const m of readFileSync(join(REPO, f), 'utf8').matchAll(/^\s*import\s[^;]*?from\s+'([^']+)'/gm)) {
+        const spec = m[1] as string;
+        if (!spec.startsWith('.') && !spec.startsWith('node:') && !spec.startsWith('bun:')) {
+          offenders.push(`${f} -> ${spec}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test('the declared dependencies are exactly the transport, and nothing has crept in', () => {
+    const pkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>;
+    };
+    // Pinned by name. A new dependency is a decision, and this test makes it one.
+    expect(Object.keys(pkg.dependencies ?? {}).sort()).toEqual(['@modelcontextprotocol/sdk', 'zod']);
+  });
+
   test('no secret-shaped string appears outside the known test fixtures', () => {
     // A real scanner, in the suite, so a genuine leak fails the build rather than waiting for
     // someone to run a tool. The allowlist is two obviously-fake purge fixtures.
+    //
+    // KNOWN LIMIT, found by §T in Phase 6: this scans `git ls-files`, so a file that is not yet
+    // tracked is invisible to it. A new test carrying a secret-shaped fixture passed locally and
+    // failed on a fresh clone — which is precisely the gap the clean-environment run exists to
+    // close, and the reason §T runs against a clone rather than the working tree. Scanning the
+    // filesystem instead would drag in node_modules and every build artifact; the honest fix is
+    // that a commit is what makes a file real, and §T checks after the commit.
     const ALLOW = /sk-live-9f2b7c41aa|sk-live-3d91ffab22/;
     const PATTERNS = [
       /AKIA[0-9A-Z]{16}/,                      // AWS access key id

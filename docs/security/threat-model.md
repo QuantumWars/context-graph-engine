@@ -38,11 +38,30 @@ listener, and no remote surface. So the realistic adversary is not a stranger �
 | 11 | **Answering from the wrong project's store** | run the CLI from the wrong directory | one project's context leaks into another's answers | **mitigated** — resolution throws rather than guessing | `workspace_unresolved`, `workspace_mismatch`; `store.test.ts`; `DEC-002` |
 | 12 | **Two writers corrupt the chain** | run two processes | records lost, chain broken, silently | **mitigated** — read and write share one lock | `ugly-input.test.ts` "two REAL processes appending concurrently" |
 | 13 | **Malformed temporal input widening visibility** | write a bad timestamp | an expired record is reported active | **mitigated** — fails closed and names the record | `security.test.ts` "temporal input"; `DEC-003` |
-| 14 | **Supply-chain compromise via a dependency** | publish a malicious package | arbitrary code in the engine | **mitigated by construction** — zero runtime dependencies | `security.test.ts` "the engine ships ZERO runtime dependencies" |
+| 14 | **Supply-chain compromise via a dependency** | publish a malicious package | arbitrary code in the engine | **mitigated for the core; the transport carries a pinned dependency** — see below | `security.test.ts` "the CORE ships zero runtime dependencies" and "mcp/ is the ONLY directory permitted an external import" |
 | 15 | **A secret leaking through an error message** | trigger any error path | a credential lands in a terminal scrollback or CI log | **partially mitigated** — content never appears; **ids do** | `security.test.ts` "an error message never contains record CONTENT" |
 | 16 | **Reading the store at rest** | read the file, without running the process | full disclosure of everything recorded | **NOT MITIGATED, by decision** | `DEC-002`: filesystem permissions are the access control; disk encryption is the OS's job |
 
 ## The three that need more than a row
+
+### 14 — the dependency boundary, after `DEC-011`
+
+Until Phase 6 this row read *mitigated by construction*, and it was free: nothing needed a library.
+The MCP transport does, so the claim narrowed rather than being quietly deleted.
+
+**What is unchanged:** `engine/src/` imports nothing but `node:` builtins and its own modules. The
+algorithms, the store, the chain and the retrieval path remain reviewable without trusting anyone,
+and a test walks every tracked file under `src/` to keep it that way.
+
+**What changed:** `engine/mcp/` carries `@modelcontextprotocol/sdk` and `zod`. It contains no
+algorithm and no storage logic — it parses a request, dispatches to code that already exists and is
+already tested, and serialises the result. A defect there cannot produce a wrong record.
+
+**What enforces it:** a second test asserts `mcp/` is the *only* directory with an external import,
+so the property cannot erode one convenience at a time. Both were demonstrated red — once with an
+import added to `src/`, once with one added to `eval/`. The shipped artifact is a bundle with the
+SDK inlined, and a test asserts it is byte-identical to a clean rebuild, so what ships is pinned
+and reviewable rather than resolved at install time.
 
 ### 9 — prompt injection with persistence
 
