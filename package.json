@@ -8,6 +8,7 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "check": "bun run typecheck && bun test",
+    "demo": "bun demo.ts",
     "engine": "bun src/cli.ts"
   },
   "devDependencies": {

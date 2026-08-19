@@ -1,0 +1,815 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Context Graph Engine — the five algorithms</title>
+<style>
+:root{
+  --bg:#fbfbfa; --fg:#1e1e1c; --dim:#6b6b66; --line:#e3e2dd; --card:#ffffff;
+  --accent:#8a4b2a; --good:#2f6b3f; --bad:#a33224; --warn:#8a6a1f;
+  --codebg:#f4f3ef; --mark:#fdf3e0;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:ui-sans-serif,-apple-system,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
+  --serif:ui-serif,Georgia,"Iowan Old Style",Palatino,serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#16161a; --fg:#e6e4de; --dim:#95938c; --line:#2c2c33; --card:#1c1c21;
+    --accent:#d99a6c; --good:#7fbf8f; --bad:#e08573; --warn:#d9bb6c;
+    --codebg:#101014; --mark:#2a2418;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#16161a; --fg:#e6e4de; --dim:#95938c; --line:#2c2c33; --card:#1c1c21;
+  --accent:#d99a6c; --good:#7fbf8f; --bad:#e08573; --warn:#d9bb6c;
+  --codebg:#101014; --mark:#2a2418;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);
+  font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.wrap{display:grid;grid-template-columns:250px minmax(0,1fr);gap:48px;
+  max-width:1180px;margin:0 auto;padding:0 24px}
+nav{position:sticky;top:0;align-self:start;max-height:100vh;overflow-y:auto;
+  padding:40px 0 40px;font-size:13.5px}
+nav .brand{font-family:var(--serif);font-size:17px;line-height:1.3;margin-bottom:4px}
+nav .sub{color:var(--dim);font-size:12px;margin-bottom:22px}
+nav a{display:block;color:var(--dim);text-decoration:none;padding:3px 0}
+nav a:hover{color:var(--accent)}
+nav a.lvl2{padding-left:14px;font-size:12.5px}
+nav .grp{margin-top:16px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--fg);opacity:.5}
+main{padding:40px 0 120px;min-width:0}
+h1{font-family:var(--serif);font-size:34px;line-height:1.2;margin:0 0 8px;font-weight:600}
+h2{font-family:var(--serif);font-size:25px;margin:64px 0 14px;font-weight:600;
+  padding-top:20px;border-top:1px solid var(--line)}
+h3{font-size:17px;margin:34px 0 10px;font-weight:650}
+h4{font-size:14px;margin:22px 0 6px;font-weight:650;color:var(--dim);
+  letter-spacing:.04em;text-transform:uppercase}
+p,li{max-width:70ch}
+a{color:var(--accent)}
+code{font-family:var(--mono);font-size:.875em;background:var(--codebg);
+  padding:1px 5px;border-radius:3px}
+pre{background:var(--codebg);border:1px solid var(--line);border-radius:7px;
+  padding:14px 16px;overflow-x:auto;font-size:13px;line-height:1.55}
+pre code{background:none;padding:0;font-size:13px}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:16px 0;display:block;
+  overflow-x:auto}
+th,td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+th{background:var(--codebg);font-weight:650;font-size:12.5px;letter-spacing:.03em}
+.lead{font-size:18px;color:var(--dim);max-width:66ch;margin-bottom:8px}
+.meta{font-size:13px;color:var(--dim);margin:18px 0 0;padding:12px 14px;
+  border:1px solid var(--line);border-radius:7px;background:var(--card)}
+.meta code{font-size:12px}
+.box{border:1px solid var(--line);border-left:3px solid var(--accent);
+  background:var(--card);border-radius:0 7px 7px 0;padding:12px 16px;margin:20px 0}
+.box.good{border-left-color:var(--good)}
+.box.bad{border-left-color:var(--bad)}
+.box.warn{border-left-color:var(--warn)}
+.box .t{font-size:11px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;
+  color:var(--dim);margin-bottom:5px}
+.box p:last-child,.box ul:last-child{margin-bottom:0}
+.box p:first-of-type{margin-top:0}
+.vs{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);
+  border-radius:7px;overflow:hidden;margin:20px 0}
+.vs>div{padding:13px 16px}
+.vs>div:first-child{border-right:1px solid var(--line);background:var(--codebg)}
+.vs .h{font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;
+  margin-bottom:6px}
+.vs .h.was{color:var(--bad)} .vs .h.now{color:var(--good)}
+.vs p{margin:0;font-size:14px}
+.vs code{font-size:12px}
+@media(max-width:900px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  nav{position:static;max-height:none;border-bottom:1px solid var(--line);padding-bottom:20px}
+  .vs{grid-template-columns:1fr}
+  .vs>div:first-child{border-right:none;border-bottom:1px solid var(--line)}
+}
+.fig{margin:22px 0;padding:16px;border:1px solid var(--line);border-radius:7px;
+  background:var(--card);overflow-x:auto}
+.fig pre{background:none;border:none;padding:0;font-size:12.5px;line-height:1.5}
+.cap{font-size:12.5px;color:var(--dim);margin-top:9px;padding-top:9px;
+  border-top:1px dashed var(--line)}
+.pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:20px;
+  border:1px solid var(--line);color:var(--dim);vertical-align:middle;margin-left:8px;
+  letter-spacing:.04em;text-transform:uppercase;font-weight:650}
+.pill.ok{color:var(--good);border-color:var(--good)}
+.pill.new{color:var(--accent);border-color:var(--accent)}
+.run{background:var(--mark);border:1px solid var(--line);border-radius:7px;
+  padding:11px 15px;margin:18px 0;font-size:14px}
+.run code{background:rgba(0,0,0,.06);font-size:12.5px}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .run code{background:rgba(255,255,255,.07)}}
+footer{margin-top:80px;padding-top:22px;border-top:1px solid var(--line);
+  font-size:13px;color:var(--dim)}
+.tog{position:fixed;top:14px;right:14px;z-index:10;background:var(--card);
+  border:1px solid var(--line);color:var(--dim);border-radius:20px;padding:5px 13px;
+  font-size:12px;cursor:pointer;font-family:var(--sans)}
+ul.tight li{margin:3px 0}
+</style>
+</head>
+<body>
+<button class="tog" id="tog">theme</button>
+<div class="wrap">
+<nav>
+  <div class="brand">Context Graph Engine</div>
+  <div class="sub">The five algorithms, explained</div>
+  <a href="#why">Why this exists</a>
+  <a href="#shape">The shape of the store</a>
+  <div class="grp">Algorithms</div>
+  <a href="#a1">1 · Hash-chained record</a>
+  <a href="#a1-canon" class="lvl2">Canonical form</a>
+  <a href="#a1-commit" class="lvl2">The commitment</a>
+  <a href="#a1-verify" class="lvl2">Four checks</a>
+  <a href="#a2">2 · Bitemporal windows</a>
+  <a href="#a2-axes" class="lvl2">Two time axes</a>
+  <a href="#a2-endpoint" class="lvl2">The endpoint rule</a>
+  <a href="#a3">3 · Retract and purge</a>
+  <a href="#a4">4 · Rank fusion</a>
+  <a href="#a5">5 · Causal chains</a>
+  <div class="grp">Wired together</div>
+  <a href="#wired">The store</a>
+  <a href="#interlink" class="lvl2">Failure behaviour</a>
+  <a href="#cli">The CLI</a>
+  <div class="grp">Reference</div>
+  <a href="#constants">Uncalibrated constants</a>
+  <a href="#run">Run it yourself</a>
+  <a href="#trail">The written record</a>
+</nav>
+<main>
+
+<h1>The five algorithms</h1>
+<p class="lead">A context graph engine for agentic systems: what an agent knew, decided
+and derived, on a record that can prove it has not been altered — and can still forget
+something on request.</p>
+
+<div class="meta">
+<strong>Status.</strong> Stages 1 and 2 complete. All five are pure functions over plain data —
+no I/O, no store, no framework — with 153 tests, every guard seen red against a named
+source change before it was claimed. the store, the retrieval path and the CLI are wired on top of them in Phase 2 without any of the five changing.<br><br>
+<strong>Provenance.</strong> Each algorithm is a port from
+<code>semantica-agi/semantica</code> v0.6.5, studied read-only, followed by a research step
+and a recorded decision. Where we diverge, the reason is stated and the original's reasoning
+is carried over rather than discarded — four things in that repository are genuinely good and
+are taken close to verbatim.
+</div>
+
+<h2 id="why">Why this exists</h2>
+<p>An agent accumulates history. A transcript is a poor way to hold it, because a transcript
+answers none of the questions that actually get asked:</p>
+<ul class="tight">
+  <li><strong>What did we know at time T?</strong> — and coherently, not a filtered list with
+  edges pointing at things that are not there.</li>
+  <li><strong>Why was this decided?</strong> — the chain of causes, and how much of it to trust.</li>
+  <li><strong>What precedent applies here?</strong> — across more than one way of searching.</li>
+  <li><strong>Has this record been altered?</strong> — because a memory you cannot audit is a
+  liability rather than an asset.</li>
+</ul>
+<p>And one that only shows up later, at the worst possible time: <strong>can we delete
+something we should never have stored?</strong> An agent reads a tool result containing a live
+API key and records it. That key is now in your history. The whole of
+<a href="#a3">Algorithm&nbsp;3</a> exists for that moment.</p>
+
+<h2 id="shape">The shape of the store</h2>
+<p>One append-only file. Every derived view — node table, adjacency index, decision lookup,
+lexical index — is <strong>rebuilt on load and never written to disk</strong>.</p>
+
+<div class="fig"><pre>&lt;workspace&gt;/.claude/graph-engine/
+  log.jsonl      the only source of truth, one JSON object per line
+  .gitignore     excludes the whole directory, written when it is created</pre>
+<div class="cap">A persisted derived copy would be a <em>second store</em>, and a second store
+for one fact is the defect that motivated most of this design — see the box below.</div></div>
+
+<div class="box bad">
+<div class="t">The defect this whole design is shaped around</div>
+<p>Semantica writes a decision <em>twice</em>: once as a graph node, once as a plain dictionary.
+An AST query over the real class shows which methods touch the dictionary:</p>
+<pre><code>save_to_file                 False      record_decision              True
+load_from_file               False      find_precedents_by_scenario  True
+purge_node                   False
+clear                        False</code></pre>
+<p>Written by one pair of methods, read by neither the persistence pair nor the erasure pair.
+So <strong>saving and reloading silently loses precedent search</strong>, and
+<strong>a purged decision stays searchable by its full text</strong>. One log with rebuilt
+views makes that class of bug structurally impossible rather than merely avoided.</p>
+</div>
+
+<h4>The record envelope</h4>
+<table>
+<tr><th>Field</th><th>Meaning</th><th>In the digest?</th></tr>
+<tr><td><code>kind</code></td><td>node · edge · decision · retraction · tombstone · retrieval</td><td>yes</td></tr>
+<tr><td><code>id</code></td><td>content-addressed, immutable</td><td>yes</td></tr>
+<tr><td><code>seq</code></td><td>contiguous from 1, in append order</td><td>yes</td></tr>
+<tr><td><code>prev</code></td><td>digest of the preceding record; <code>null</code> for the first</td><td>yes</td></tr>
+<tr><td><code>contentDigest</code></td><td>salted commitment to the payload</td><td>yes</td></tr>
+<tr><td><code>meta</code></td><td>workspace stamp and other attested metadata</td><td>yes</td></tr>
+<tr><td><code>validFrom</code> / <code>validUntil</code></td><td>valid time, inclusive, nullable = unbounded</td><td>yes</td></tr>
+<tr><td><code>recordedAt</code></td><td>transaction time — never null</td><td>yes</td></tr>
+<tr><td><code>digest</code></td><td>this record's own fingerprint</td><td>— it <em>is</em> the digest</td></tr>
+<tr><td><code>content</code></td><td>the payload</td><td><strong>no</strong> — see Algorithm 1</td></tr>
+<tr><td><code>salt</code></td><td>per-record random salt</td><td><strong>no</strong> — see Algorithm 1</td></tr>
+</table>
+
+<!-- ══════════════════════════ ALGORITHM 1 ══════════════════════════ -->
+<h2 id="a1">1 · The hash-chained record <span class="pill new">design changed by research</span></h2>
+<p class="lead">Make tampering visible, without making forgetting impossible.</p>
+<p><code>src/provenance/chain.ts</code> · <code>src/provenance/canonical.ts</code> ·
+ported from <code>semantica/provenance/integrity.py</code> and
+<code>manager.py:1415-1485</code></p>
+
+<h3 id="a1-canon">First, the bytes: canonical form</h3>
+<p>You cannot hash a record until you agree exactly which bytes represent it. JSON is not
+deterministic — key order, number formatting and whitespace all vary between serialisers,
+languages and runtime versions. Hash a record on two code paths and you get two digests, and
+the difference reads as tampering. <strong>A false accusation is worse than no check.</strong></p>
+
+<p>So every digest goes through one function, implementing the rule standardised as
+<strong>RFC 8785, the JSON Canonicalization Scheme</strong>:</p>
+<ul class="tight">
+  <li>Object keys sorted ascending by UTF-16 code unit — not by locale.</li>
+  <li>No insignificant whitespace anywhere.</li>
+  <li><code>null</code> written explicitly; an <em>absent</em> key omitted entirely, so
+  omission and <code>null</code> stay distinct and must survive a reload unchanged.</li>
+  <li><code>NaN</code> and <code>Infinity</code> are <strong>errors</strong>, not coercions.
+  <code>JSON.stringify</code> silently turns both into <code>null</code>, which would make two
+  different records hash identically.</li>
+</ul>
+
+<div class="box bad">
+<div class="t">What this replaces</div>
+<p>The original concatenates sixteen field values with <em>no separator at all</em>:</p>
+<pre><code>data = (f"{entry.entity_type}"
+        f"{entry.activity_id}"
+        f"{entry.agent_id}" ... )     # 16 fields, glued</code></pre>
+<p>So the field pair <code>("ab", "c")</code> and the pair <code>("a", "bc")</code> produce an
+<strong>identical digest</strong>. A separator does not fix this — any separator can occur
+inside a value. JSON is self-delimiting, which is the actual fix.</p>
+</div>
+
+<h3 id="a1-commit">The commitment — and why it is not just <code>hash(content)</code></h3>
+
+<p>The obvious design hashes the record's content directly. It is also the design that makes
+deletion impossible, and we had already committed that deletion must work.</p>
+
+<div class="fig"><pre>THE TRAP
+
+  digest(N) = hash( content(N) + digest(N-1) )
+
+  Delete content(N)  →  digest(N) no longer matches
+                     →  record N+1 points at a fingerprint that does not exist
+                     →  the chain is broken
+
+  ...which is EXACTLY what an attacker deleting a record looks like.
+  The chain cannot tell "the owner asked us to forget" from "someone tampered".</pre>
+<div class="cap">Neither system we studied solves this. Semantica scopes purge to a separate
+subsystem its chain does not cover. <code>memory/src/facts.ts</code> never erases at all —
+"nothing is deleted, only invalidated".</div></div>
+
+<p>The answer from the cryptographic-erasure literature is neither of those: <strong>keep the
+payload out of the hashed material and commit to it instead.</strong></p>
+
+<div class="fig"><pre>contentDigest = SHA-256( salt ‖ canonicalJson(content) )        ← the commitment
+digest        = SHA-256( canonicalJson(record − digest − content − salt) )
+
+              contentDigest  IS INSIDE  digest
+              content, salt  ARE NOT</pre>
+<div class="cap">The chain attests to the commitment, never to the payload. So the payload can
+be removed without touching anything the chain depends on.</div></div>
+
+<div class="box good">
+<div class="t">The consequence</div>
+<p>A purge sets <code>content = null</code> and <code>salt = null</code>. It leaves
+<code>digest</code>, <code>prev</code>, <code>seq</code> and <code>contentDigest</code>
+untouched — so <strong>the chain still verifies</strong>, before and after the purged record,
+with no gap and no break.</p>
+</div>
+
+<div class="box warn">
+<div class="t">Why deleting the salt is the load-bearing half</div>
+<p>Without a salt, <code>contentDigest</code> is just <code>hash(content)</code>. If the content
+had low entropy — a boolean, a status flag, a short name — an attacker holding the surviving
+digest hashes every candidate until one matches, and the "erased" content is recovered.</p>
+<p>With a per-record random salt deleted alongside the content, they must guess the content
+<em>and</em> a random salt at once. That is not feasible. A purge that kept the salt would be
+theatre.</p>
+<p>The two are therefore removed <strong>together, always</strong>. Removing one but not the
+other is not a partial purge — it is a corrupt record, and the verifier says so.</p>
+</div>
+
+<p>The salt is also <strong>length-prefixed</strong> rather than merely concatenated, so the
+salt/content boundary cannot be slid — the same ambiguity the canonical form closes inside the
+content:</p>
+<pre><code>sha256(`${salt.length}:${salt}${canonicalJson(content)}`)</code></pre>
+
+<h3 id="a1-verify">Verification: four checks, in order</h3>
+<p>Splitting the payload out of the chain link means the payload needs a check of its own —
+otherwise editing content in place would no longer be caught by anything.</p>
+
+<table>
+<tr><th>#</th><th>Check</th><th>Reason code</th><th>Skipped when</th></tr>
+<tr><td>1</td><td><code>contentDigest</code> re-computes from <code>salt ‖ content</code></td><td><code>content_tampered</code></td><td>the record is purged</td></tr>
+<tr><td>2</td><td><code>digest</code> re-computes from the record's other fields</td><td><code>digest_mismatch</code></td><td><strong>never</strong></td></tr>
+<tr><td>3</td><td><code>prev</code> equals the predecessor's stored <code>digest</code></td><td><code>chain_break</code></td><td><strong>never</strong></td></tr>
+<tr><td>4</td><td><code>seq</code> equals predecessor's <code>seq</code> + 1</td><td><code>sequence_gap</code></td><td><strong>never</strong></td></tr>
+</table>
+
+<div class="box">
+<div class="t">A purge must not become a way to hide tampering</div>
+<p>A purged record skips <em>only</em> check 1. It still faces 2, 3 and 4. If a purge exempted a
+record from the chain checks, then "purge" would be an attacker's tool, and the erasure feature
+would have destroyed the integrity feature it was meant to coexist with. There is a test named
+exactly that, and the demo shows it firing.</p>
+</div>
+
+<h4>Why check 3 and check 4 both exist</h4>
+<p>They look redundant and are not. Two distinct records could, in principle, share a digest —
+and a link-only check would then miss a gap that the sequence check still catches. Deleting a
+record trips <strong>both</strong> signals on its successor, which is much harder to forge than
+either alone. The original states this reasoning at the site, and it is carried over.</p>
+
+<h4>One corrupt record must not cascade</h4>
+<p>After examining each record, the verifier advances its expectations from <em>that record's own
+stored fields</em> — whether or not it was just flagged.</p>
+<pre><code>expectedPrev = e.digest;   // not "what we thought it should be"
+expectedSeq  = e.seq;</code></pre>
+<p>Without this, one tampered record in the middle makes every record after it look broken too,
+and the report tells you nothing about where the problem actually is.</p>
+
+<div class="box good">
+<div class="t">Carried over unchanged, because the original is right</div>
+<p><strong>Link before hashing.</strong> <code>prev</code> is assigned <em>then</em> the digest is
+computed, so the link sits <em>inside</em> the digest. A link stored beside the digest could be
+rewritten without detection.</p>
+</div>
+
+<div class="box">
+<div class="t">One place we deliberately diverge</div>
+<p>Semantica excludes its primary key from the hash, and explains why: its versioning archives a
+prior value under a <em>new</em> id, so hashing the id would turn a legitimate rename into a
+permanent false chain break. It also records what that costs — a row whose id is swapped while
+its content is kept is no longer caught.</p>
+<p>We hash every field except <code>digest</code>, <code>content</code> and <code>salt</code>,
+with no id exclusion, <strong>because we do not inherit the cause</strong>: records here are
+immutable and a correction is a new record, so no id is ever relabelled.</p>
+</div>
+
+<div class="box warn">
+<div class="t">Why a flat chain and not a Merkle tree</div>
+<p>Crosby &amp; Wallach's <em>history tree</em> (SIGIR 2009, adopted by Certificate Transparency)
+turns linear verification into logarithmic <em>proofs</em>. Its advantage is proving something to
+a party that <strong>does not hold the log</strong>. We have no such party — one local principal,
+no network surface, no remote verifier — and verification here is a full scan by the process that
+already holds everything, where a chain and a tree cost the same.</p>
+<p><strong>The trigger to change is named:</strong> the first time something that does not hold the
+log must be convinced of its consistency. Note that a Merkle tree has the <em>same</em> deletion
+problem — the commitment design above is what solves it in either structure.</p>
+</div>
+
+<!-- ══════════════════════════ ALGORITHM 2 ══════════════════════════ -->
+<h2 id="a2">2 · Bitemporal windows and <code>stateAt</code></h2>
+<p class="lead">What was true then — and, separately, what we believed then.</p>
+<p><code>src/temporal/window.ts</code> · ported from
+<code>semantica/context/context_graph.py:2590-2631</code></p>
+
+<h3 id="a2-axes">Two time axes, and why one is not enough</h3>
+<p>SQL:2011 separates two independent dimensions, and gives each its own table type:</p>
+<table>
+<tr><th>Axis</th><th>Means</th><th>Supplied by</th><th>Field</th></tr>
+<tr><td><strong>Valid time</strong></td><td>the period a fact correctly reflects reality</td><td>the caller</td><td><code>validFrom</code> / <code>validUntil</code></td></tr>
+<tr><td><strong>Transaction time</strong></td><td>the period the store held the record</td><td>the engine</td><td><code>recordedAt</code></td></tr>
+</table>
+<p><strong>Bitemporal means both.</strong> Semantica's comments describe its windows as
+bitemporal, but it carries only valid time — so the question <em>"what did the store believe in
+March?"</em> has no answer there.</p>
+
+<div class="box good">
+<div class="t">Why the second axis matters here specifically</div>
+<p>A decision made in March, on the information available in March, is not wrong because April
+corrected the record. A snapshot that silently applies April's knowledge to a March decision
+<strong>misrepresents every past decision it explains</strong>. Precedent retrieval has the same
+shape: the precedent that should have been found is the one that existed at the time.</p>
+</div>
+
+<p>And it was nearly free. Algorithm 1's append-only log already orders records by insertion, so
+<code>recordedAt</code> <em>is</em> transaction time and <code>asOf</code> is a truncation of the
+input. No second store, no history table, no versioning scheme — the structure built for tamper
+evidence carries the second axis as a side effect.</p>
+
+<div class="fig"><pre>stateAt(nodes, edges, { validAt, asOf })
+
+  1. TRANSACTION TIME   drop everything recorded after `asOf`
+  2. VALID TIME         keep records whose window contains `validAt`
+  3. ENDPOINT RULE      keep an edge only if BOTH endpoints survived step 2</pre>
+<div class="cap"><strong>The order is not cosmetic.</strong> Reversed, a record written in June
+could influence a snapshot of what was believed in March.</div></div>
+
+<h3 id="a2-endpoint">The endpoint rule</h3>
+<p>An edge is admitted only when its own window is open <strong>and both of its endpoints are
+active</strong>. This is the single rule that makes a snapshot a coherent view of something rather
+than a filtered list — without it, a snapshot can contain an edge pointing at a node that is not
+in the snapshot.</p>
+<p>The test asserts it <em>computed from the result</em>, not against a hardcoded expectation, so
+a new way to leak a dangling edge fails without anyone remembering to add a case:</p>
+<pre><code>const ids = new Set(snapshot.nodes.map(n =&gt; n.id));
+expect(snapshot.edges.length).toBeGreaterThan(0);   // anti-vacuity first
+for (const e of snapshot.edges) {
+  expect(ids.has(e.source)).toBe(true);
+  expect(ids.has(e.target)).toBe(true);
+}</code></pre>
+
+<h3>Malformed input fails closed, not open</h3>
+<div class="vs">
+<div><div class="h was">Semantica</div>
+<p>An unparseable bound parses to <code>None</code>, and <code>is_active</code> then imposes
+<em>no bound at all</em>, logging "treating node as Always-Active".</p>
+<p><strong>A corrupted timestamp makes a record more visible</strong>, and a record that should
+have expired never does.</p></div>
+<div><div class="h now">Here</div>
+<p>An unusable bound <strong>excludes</strong> the record and appends a reason code to
+<code>rejected</code>. Excluded <em>and named</em> — an invisible record with no stated reason is
+its own bug.</p></div>
+</div>
+
+<p>Two tightenings follow from the same rule:</p>
+<ul class="tight">
+<li><strong>A date-time with no offset is rejected</strong> as <code>ambiguous_timezone</code>
+rather than assumed to be UTC. If the value was local, the record silently moves by hours — a
+wrong answer wearing the shape of a right one. A date-<em>only</em> value is still accepted as
+UTC midnight, because that is a stated convention rather than a guess.</li>
+<li><strong>An inverted window</strong> — start after end — is reported. Such a record can never
+be active, so it is a defect in whatever wrote it, not an intent to hide something.</li>
+</ul>
+
+<!-- ══════════════════════════ ALGORITHM 3 ══════════════════════════ -->
+<h2 id="a3">3 · Retract and purge <span class="pill ok">two operations, two record types</span></h2>
+<p class="lead">"This is no longer true" is a completely different statement from "this should
+never have been captured".</p>
+<p><code>src/temporal/retract.ts</code> · ported from
+<code>semantica/context/context_graph.py:1556-1919</code></p>
+
+<div class="vs">
+<div><div class="h now">RETRACT</div>
+<p><strong>Closes the validity window</strong> and files a retraction record. The content stays.
+History still answers "what was the policy in March?"</p>
+<p>For: a superseded policy, a fact that stopped being true, a decision that was reversed.</p></div>
+<div><div class="h now">PURGE</div>
+<p><strong>Removes the content</strong> and leaves a tombstone that deliberately holds none of it.
+The record is gone; only the fact that something was here remains.</p>
+<p>For: a leaked credential, personal data, anything that should never have entered the store.</p></div>
+</div>
+
+<h3>The narrowing rule</h3>
+<p>A retraction takes the <strong>earlier</strong> of an existing end bound and the retraction
+instant. It can only ever narrow a window, never widen one.</p>
+<pre><code>closingValidUntil(current, at) = min(current, at)      // roughly</code></pre>
+<div class="box warn">
+<div class="t">What breaks without it</div>
+<p>A record whose window already closed in February, retracted in June, would be reported
+<strong>active for the four months in between</strong> — because the retraction "set" its end
+bound to June. The original states this reasoning in the function's own docstring, and it is
+carried over.</p>
+</div>
+<p>An <em>untrusted</em> existing bound closes at the retraction instant. That is the safe
+direction, and it stays consistent with the fail-closed rule: an untrusted bound results in
+<strong>less</strong> visibility, never more.</p>
+
+<h3>The tombstone holds nothing</h3>
+<pre><code>{ type: 'tombstone', id, kind, purgedAt, reason,
+  contentDigest,                 // kept: proves something was committed here
+  scope: 'this-store-only' }     // the honest scope statement</code></pre>
+<p>The test is written the way the requirement was written — it scans the serialised tombstone
+for <strong>every field value</strong> of the purged content, not a sample, so a content field
+added later is caught without anyone remembering. And it proves the scan can find a value when
+one <em>is</em> present, so a pass means "absent" rather than "the scan is broken".</p>
+
+<div class="box warn">
+<div class="t">Why every tombstone states its scope</div>
+<p>GDPR Art. 17 reaches <strong>every copy</strong> of the data, and a controller must take
+reasonable steps to inform other holders, who then become independently responsible.</p>
+<p>This store can clear its own copy. It cannot reach a copy something else made — a backup, an
+export, another machine that synced. Semantica's own docstring calls purge "one step of an
+erasure workflow, not the whole of it", and the research says that posture is
+<strong>correct rather than a cop-out</strong>. So it is carried over and made machine-visible
+instead of left in prose.</p>
+<p>A tombstone without it would imply an obligation had been discharged when only part of it had
+— and the party most likely to be misled is a future session of this engine, telling a user their
+data "has been erased".</p>
+</div>
+
+<h3>Cascade, and a subtle bug worth inheriting the fix for</h3>
+<p>Retracting a node closes every edge incident to it. The set of already-retracted edges is
+snapshotted <strong>before</strong> the loop, never consulted live.</p>
+<div class="box bad">
+<div class="t">Why that ordering matters</div>
+<p>Semantica's edge ids are content-derived and <strong>can collide</strong>, so two distinct edge
+objects may share one id. With a live set, the record written for the first blocks the second from
+ever being closed — leaving an edge open against a retracted node.</p>
+<p>Our first test for this used two edges with <em>distinct</em> ids and therefore could not have
+caught the bug at all. It was rewritten around two edges sharing an id, and only then did
+reintroducing the bug turn it red.</p>
+</div>
+
+<!-- ══════════════════════════ ALGORITHM 4 ══════════════════════════ -->
+<h2 id="a4">4 · Reciprocal Rank Fusion</h2>
+<p class="lead">Combining two searches without pretending their scores are comparable.</p>
+<p><code>src/retrieval/rrf.ts</code> · ported from
+<code>semantica/vector_store/hybrid_search.py:148-186</code> ·
+Cormack, Clarke &amp; Buettcher, SIGIR 2009</p>
+
+<div class="fig"><pre>score(d) = Σ  1 / (k + rank_c(d))          k = 60, ranks 1-based
+           c
+
+summed across every channel c that returned d. Nothing normalised.</pre></div>
+
+<p>The channels here are <strong>lexical</strong> and <strong>structural</strong>. Their scores are
+not on a common scale and never will be — a keyword score and a graph-connectivity score measure
+different things — so any scheme that adds their <em>magnitudes</em> is adding units that do not
+compare. RRF uses only the <strong>rank</strong>, which every channel produces in the same units by
+construction.</p>
+
+<h3>What it replaces, and why that is a defect and not just crude</h3>
+<p>Semantica's context retriever min–max normalises each source independently before weighting.
+Concretely, with one channel that found nothing useful and one that found something excellent:</p>
+
+<div class="fig"><pre>lexical      junk-a=0.02   junk-b=0.01        ← found nothing useful
+structural   excellent=0.98  ok=0.40          ← found something excellent
+
+PER-SOURCE MIN–MAX                        RECIPROCAL RANK FUSION
+  junk-a      1.000  ← promoted!            excellent   0.01639
+  excellent   1.000  ← tied with junk         junk-a    0.01639
+  junk-b      0.000                           ok        0.01613
+  ok          0.000                           junk-b    0.01613</pre>
+<div class="cap">Min–max makes the best result <em>within</em> a source 1.0 whether it is excellent
+or the least-bad of three irrelevant ones. A source that found nothing still contributes a
+maximally-scored candidate, and <strong>no downstream weight can recover the lost signal</strong>.</div></div>
+
+<div class="box">
+<div class="t">How the test proves this rather than asserting it</div>
+<p>The rejected algorithm is implemented <em>in the test file</em>. The test first proves min–max
+really does tie junk with excellent on that exact input, and only then checks that ours does not.
+A pass therefore means "we fixed a real defect", not "the fixture was toothless".</p>
+</div>
+
+<h3>Three defects in the original, fixed</h3>
+<table>
+<tr><th>Original</th><th>Consequence</th><th>Here</th></tr>
+<tr><td><code>result.get("id", str(id(result)))</code></td><td>a result with no id silently becomes its own key and can <strong>never fuse</strong> across channels</td><td>hard error, <code>missing_id</code>, naming the channel and position</td></tr>
+<tr><td>reconstruction is last-list-wins</td><td>the payload kept is whichever channel happened to come last</td><td>every channel's contribution is kept</td></tr>
+<tr><td><code>result["score"] = score</code></td><td>the per-channel score is overwritten by the fused one, destroying the evidence for the ranking</td><td>the original score is retained per channel</td></tr>
+</table>
+
+<h3>Every result can explain itself</h3>
+<pre><code>{ id: 'b', fusedScore: 0.03252,
+  contributions: [
+    { channel: 'lexical',    rank: 2, score: 3.1, rrf: 0.01613 },
+    { channel: 'structural', rank: 1, score: 0.9, rrf: 0.01639 },
+  ] }</code></pre>
+<p>A ranking that cannot be explained cannot be debugged, and a retrieval system nobody can debug
+gets turned off.</p>
+
+<div class="box good">
+<div class="t">What <code>k = 60</code> actually buys</div>
+<p>It damps the dominance of a single high rank, so an outstanding vote from one channel becomes
+<em>comparable</em> to agreement across channels rather than overwhelming it. A candidate ranked
+2nd by both channels can beat one ranked 1st by only one — which is usually what you want, and is
+the paper's central result.</p>
+</div>
+
+<!-- ══════════════════════════ ALGORITHM 5 ══════════════════════════ -->
+<h2 id="a5">5 · Decision nodes and causal chains</h2>
+<p class="lead">Why something was decided, and how much of that chain to believe.</p>
+<p><code>src/decision/causal.ts</code> · ported from
+<code>semantica/context/context_graph.py:2734-2772</code> and <code>:3938-3974</code></p>
+
+<h3>A decision is a node. That is the only copy.</h3>
+<p>This is the whole of the defect in <a href="#shape">the box at the top</a>. There is no shadow
+dictionary, no separate decision index, nothing that a save could miss or a purge could fail to
+reach. <code>decisionContent()</code> reads from the node, and there is nowhere else to look.</p>
+
+<h3>Three edge types, and the distinction they encode</h3>
+<pre><code>CAUSED  ·  INFLUENCED  ·  PRECEDENT_FOR</code></pre>
+<p>These are what a caller <strong>asserted</strong> — as distinct from relationships a heuristic
+inferred from shared entities and timestamps. Only asserted edges are traversed. Mixing the two
+would let a guess masquerade as a record, and the original is careful about this at its definition
+site.</p>
+
+<div class="box bad">
+<div class="t">The casing trap, fixed at the boundary</div>
+<p>In Semantica, <code>record_decision</code> writes <code>node_type="decision"</code> while
+<code>add_decision</code> writes <code>"Decision"</code>. Two readers compare with
+<code>.lower()</code>; two compare <strong>exactly</strong>. So decisions created one way are
+<em>invisible</em> to two of the four readers.</p>
+<p>Here there is one canonical form, normalised once at the boundary, and no reader compares a raw
+string anywhere.</p>
+</div>
+
+<h3>Per-path cycle detection, not a global visited set</h3>
+<div class="fig"><pre>        incident
+        ├── postmortem ── add-gate ──(0.3)── slow-ci
+        └── hire-sre ──────────────(0.2)──── slow-ci
+
+  GLOBAL visited set:   finds one route, silently drops the other
+  PER-PATH:             finds both</pre>
+<div class="cap">A node already on the <em>current path</em> is not revisited — but a node reached by
+one branch may still be reached by another. Semantica's own comment says a global set "silently
+loses valid chains", and a diamond is the smallest case where that bites.</div></div>
+
+<h3>Two confidence numbers, deliberately never blended</h3>
+<table>
+<tr><th></th><th>Formula</th><th>Assumes</th><th>Read as</th></tr>
+<tr><td><code>productConfidence</code></td><td>w₁ · w₂ · … · wₙ</td><td>hops are <strong>independent</strong> — along a causal chain they usually are not</td><td>a lower bound</td></tr>
+<tr><td><code>weakestConfidence</code></td><td>min(w₁ … wₙ)</td><td>nothing</td><td>the weakest link</td></tr>
+</table>
+<p>The product can never exceed the minimum, so reporting both brackets the answer. The report also
+names <em>which hop</em> is the weakest, so a reader can see <strong>where</strong> the chain is thin
+rather than only <em>that</em> it is.</p>
+
+<div class="box warn">
+<div class="t">Why we refuse to emit a single number</div>
+<p>The hop weights themselves are <strong>uncalibrated</strong> — nothing in this engine has measured
+what a weight of 0.7 means. Collapsing uncalibrated inputs through either operator produces a figure
+with more apparent precision than its inputs carry.</p>
+<p><strong>Noisy-OR was considered and is the wrong operator here</strong>, by its own definition: it
+combines several independent causes of <em>one effect</em> — parallel evidence — not serial
+composition along a path. It <em>would</em> be right for a question this engine does not yet ask:
+several distinct chains supporting the same decision.</p>
+</div>
+
+<div class="box bad">
+<div class="t">What was deliberately not ported</div>
+<p>The original ends by turning the product into an English verdict — "high confidence", "is weak
+evidence" — using thresholds of <strong>0.7</strong> and <strong>0.4</strong>. Those constants are not
+derived from anything, and could not be: <code>semantica/evals/__init__.py</code> is ten lines reading
+<code>__status__ = "coming_soon"</code>, so no threshold in that system has ever been measured.</p>
+<p>A prose verdict built on unmeasured thresholds is <em>more</em> dangerous than the raw number,
+because it reads as a conclusion. Dropped.</p>
+</div>
+
+<p>One more fix: a stored weight of <strong><code>0.0</code></strong> means "this link carries no
+confidence", which is the <em>opposite</em> of the <code>1.0</code> default it could be mistaken for.
+The original reads <code>float(hop.get("edge_weight", 1.0))</code>; we read the weight directly, and
+there is a test pinning it.</p>
+
+<!-- ══════════════════════════ REFERENCE ══════════════════════════ -->
+<h2 id="wired">Wired together — the store <span class="pill ok">phase 2</span></h2>
+<p class="lead">Five pure algorithms, one append-only file, and nothing derived on disk.</p>
+
+<p>Stage 1 built the algorithms as islands: no I/O, no store, no imports between them beyond a
+shared type. Stage 2 added callers. <strong>None of the five changed to make that work</strong>,
+which was the point of keeping them pure — if an algorithm had needed to change to be wired, that
+would have been a finding about Stage 1 rather than something to patch quietly.</p>
+
+<div class="fig"><pre>engine record ──┐
+engine link   ──┤
+engine retract──┼──► Store ──► appendEntry (1) ──► log.jsonl   ← the only file
+engine purge  ──┘       │
+                        ├──► stateAt (2) ──────► point-in-time snapshot
+                        ├──► closingValidUntil (3) at READ time
+                        ├──► findChains + chainReport (5) ────► why
+                        └──► lexical + structural ──► fuse (4) ─► retrieval decision</pre>
+<div class="cap">Every mutation goes through one build path, so nothing can write a record that
+skips the chain. Node table, adjacency and decision lookup are rebuilt on load and never
+persisted.</div></div>
+
+<div class="box bad">
+<div class="t">A bug the tests caught in this design, worth showing</div>
+<p>The first <code>retract</code> closed a window by <em>editing the record</em> and recomputing
+its digest. That is exactly what <code>DEC-007</code> forbids — records are immutable, corrections
+append — and the consequence was immediate: every later record's <code>prev</code> still pointed
+at the old digest, so <strong>one retraction broke the whole chain</strong>.</p>
+<pre><code>StoreError: chain_invalid: … first is chain_break at seq 2</code></pre>
+<p>Nothing in the code stopped it. The types were satisfied and the algorithm was right in
+isolation; only an integration test over a real file caught it. The fix: derive the closure at
+read time by folding the narrowing rule over every retraction. The log stays append-only.</p>
+</div>
+
+<h3 id="interlink">What happens when a neighbour fails</h3>
+<p>The Stage 2 question is not "what does A call" but <strong>"what happens when B is absent, slow
+or wrong"</strong>. Every connection has an answer and a reason code — 23 of them, each verified
+to exist in the source. A selection:</p>
+<table>
+<tr><th>Connection</th><th>When it fails</th><th>Code</th></tr>
+<tr><td>load → <code>readLog</code></td><td>a malformed line <strong>aborts the load</strong>; never skipped, because skipping silently shortens the chain and turns a corrupt log into a shorter valid-looking one</td><td><code>malformed_line</code></td></tr>
+<tr><td>load → <code>verifyChain</code></td><td>an invalid chain <strong>refuses the load</strong>. No partial graph — answering from an altered record without saying so is the failure this exists to prevent</td><td><code>chain_invalid</code></td></tr>
+<tr><td>append → workspace stamp</td><td>a mismatch is refused, naming both roots and both resolution methods</td><td><code>workspace_mismatch</code></td></tr>
+<tr><td>workspace resolution</td><td>nothing to go on <strong>throws</strong>. No current-directory fallback — that is the mechanism that once produced six separate stores under one repository</td><td><code>workspace_unresolved</code></td></tr>
+<tr><td>retrieval → decision row</td><td>a row claiming <code>served</code> with nothing served is <strong>rejected, not written</strong> — recording it would put a lie in the audit trail</td><td><code>contradictory_decision</code></td></tr>
+</table>
+<p>No connection has a failure behaviour of "cannot happen". Where one is close, what enforces it
+is stated instead of the cell being left blank.</p>
+
+<h2 id="cli">The CLI</h2>
+<p>Each command is a separate process, so everything below survives a restart by construction.</p>
+<div class="fig"><pre>$ engine record d-friday --kind decision --text "deploying on friday caused an incident"
+recorded decision d-friday  seq=1  digest=1c899ffdf601…
+$ engine link d-friday d-gate --type CAUSED --weight 0.9
+linked d-friday --CAUSED(0.9)--&gt; d-gate  seq=4
+
+$ engine retract d-friday --reason "policy replaced by the gate"
+retracted d-friday  content kept; window closed
+
+$ engine purge d-leak --reason "contained a live credential"
+purged d-leak
+  tombstone scope: this-store-only — copies elsewhere are not reached.
+
+$ grep -c "sk-live-9f2b7c41aa" log.jsonl
+0
+$ engine verify
+✓ chain verifies — 6 record(s), 1 purged, 0 problems</pre>
+<div class="cap"><strong>Those last four lines are the whole claim of this project.</strong> The
+credential is gone from the file, and the tamper-evidence over everything else is intact.</div></div>
+
+<p>The bytes on disk are the canonical form — keys sorted, no whitespace:</p>
+<pre><code>{"content":{"text":"deploying on friday caused a production incident"},"contentDigest":"af702a05…","digest":"1c899ffd…","id":"d-friday","kind":"decision","meta":{"recordedAt":"2026-08-19T14:…</code></pre>
+
+<div class="run">
+<code>engine record</code> · <code>link</code> · <code>retract</code> · <code>purge</code> ·
+<code>at</code> · <code>why</code> · <code>find</code> · <code>verify</code> · <code>log</code><br><br>
+<code>bun run --cwd engine engine -- --help</code><br>
+<code>bun --cwd engine src/cli.ts record x --text "hello" --workspace /path/to/project</code>
+</div>
+<p>The store location comes from <code>--workspace</code>, then <code>GRAPH_ENGINE_WORKSPACE</code>,
+then <code>CLAUDE_PROJECT_DIR</code> — and then it <strong>throws</strong>. There is deliberately no
+current-directory fallback, because a directory change would silently swap which project's store
+is read.</p>
+
+<h2 id="constants">Uncalibrated constants, declared</h2>
+<p>Every number below ships as a <strong>declared placeholder</strong>, annotated at its definition
+site. None has been measured against this engine's own data, because there is no evaluation harness
+yet — and building one is the single most load-bearing gap in the project.</p>
+<table>
+<tr><th>Constant</th><th>Value</th><th>Where from</th><th>What would settle it</th></tr>
+<tr><td><code>RRF_K</code></td><td>60</td><td>the source paper's default</td><td>a labelled query set with a verbatim-retrieval baseline arm</td></tr>
+<tr><td>causal distance bands</td><td>1 / 3 / 6</td><td>carried over from the original</td><td>whether the bands predict anything a reader cares about</td></tr>
+<tr><td>every hop weight</td><td>caller-supplied</td><td>nothing — the caller asserts them</td><td>agreement between asserted weights and observed outcomes</td></tr>
+</table>
+<p>This is the discipline the studied system lacked. It ships 28 ingest connectors, 10 storage
+backends and 89 CLI commands, and an evaluation package of ten lines reading
+<code>"coming_soon"</code> — so every weight and threshold in it is uncalibrated <em>by
+construction</em>, and nothing in the repository could establish otherwise. Breadth was funded ahead
+of the instrument that would say whether any of it works.</p>
+
+<h2 id="run">Run it yourself</h2>
+<p>From <code>graph-engine/</code>. Everything is in memory — it reads no store and writes no file.</p>
+<div class="run">
+<code>bun --cwd engine demo.ts</code> — list the scenarios<br>
+<code>bun --cwd engine demo.ts chain</code> — tampering caught: edit, delete, reorder<br>
+<code>bun --cwd engine demo.ts purge</code> — a leaked key deleted, chain still verifies<br>
+<code>bun --cwd engine demo.ts retract</code> — retract vs purge, side by side<br>
+<code>bun --cwd engine demo.ts time</code> — the two time axes, and failing closed<br>
+<code>bun --cwd engine demo.ts fuse</code> — min–max vs RRF on the same input<br>
+<code>bun --cwd engine demo.ts causal</code> — both routes, and the weakest link<br>
+<code>bun --cwd engine demo.ts all</code> — everything<br><br>
+<code>bun run --cwd engine check</code> — typecheck + 107 tests
+</div>
+<div class="box">
+<div class="t">Why a demo as well as tests</div>
+<p>A test asserts what its author expected. Watching the thing run shows what actually happens.
+Those are different kinds of evidence, and the second one catches assumptions the first one bakes
+in.</p>
+</div>
+
+<h2 id="trail">The written record</h2>
+<p>Every decision here is recorded where it can be argued with, not just implemented.</p>
+<table>
+<tr><th>Path</th><th>What it holds</th></tr>
+<tr><td><code>engine/build/DEC-*.md</code></td><td>Locked decisions. Each has a <em>What was rejected</em> section — the next idea is usually already in it.</td></tr>
+<tr><td><code>engine/build/phase-N-summary.md</code></td><td>What each phase actually did, with the evidence pasted and every guard's proven failure.</td></tr>
+<tr><td><code>engine/docs/research/</code></td><td>The research step per algorithm, with sources and a one-hop-from-source caveat.</td></tr>
+<tr><td><code>engine/docs/future-work/</code></td><td>What is deliberately <strong>not</strong> built. Start with the erasure page.</td></tr>
+<tr><td><code>recon-semantica/</code></td><td>The teardown this is built from — 12 findings, each with the query that established it.</td></tr>
+</table>
+
+<div class="box good">
+<div class="t">The rule underneath all of it</div>
+<p><strong>A guard is worth exactly what it fails on.</strong> Before any test here was claimed to
+work, a specific source change was named that should turn it red — and that change was made and
+watched. Twice in Phase 1 the mutation left the suite green, and both times the <em>test</em> was
+wrong, not the code. Green had read as confirmation.</p>
+</div>
+
+<footer>
+Context Graph Engine · Stages 0–2 complete, 153 tests · generated 2026-08-19<br>
+Built from a read-only teardown of <code>semantica-agi/semantica</code> v0.6.5.
+That repository is studied here and never modified.
+</footer>
+
+</main>
+</div>
+<script>
+(function(){
+  var t=document.getElementById('tog');
+  t.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur? cur==='dark' : matchMedia('(prefers-color-scheme:dark)').matches;
+    document.documentElement.setAttribute('data-theme', dark?'light':'dark');
+  });
+  document.querySelectorAll('nav a').forEach(function(a){
+    a.addEventListener('click',function(e){
+      var el=document.querySelector(a.getAttribute('href'));
+      if(el){e.preventDefault();el.scrollIntoView({behavior:'smooth',block:'start'});}
+    });
+  });
+})();
+</script>
+</body>
+</html>
