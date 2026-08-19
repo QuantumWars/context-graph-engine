@@ -6,7 +6,8 @@ you should not have to ask anyone what happened.
 
 ## Status
 
-**The build is closed.** Post-mortem: `POSTMORTEM.md`. The ten standing rules moved into
+**Phases 0–5 closed.** Phase 5 reopened the build for the item the post-mortem named as the
+largest gap, and the harness rejected a shipped constant on its first run. Post-mortem: `POSTMORTEM.md`. The ten standing rules moved into
 `engine/CLAUDE.md`.
 
 
@@ -17,6 +18,7 @@ you should not have to ask anyone what happened.
 | 2 | 2 | Interlink by real interconnectivity; one store; the CLI | **closed 2026-08-19 — 153 tests, CLI shipped** |
 | 3 | 3 | Real-world, adversarial and ugly-input test suites | **closed 2026-08-19 — 190 tests, 3 real bugs found** |
 | 4 | 4 | Security pass and the §T shipped-artifact check | **closed 2026-08-19 — 210 tests, 16 threats, clean-env §T green** |
+| 5 | — | The evaluation harness | **closed 2026-08-19 — 241 tests; LEXICAL_FLOOR recalibrated 0.01 → 0.4** |
 
 ## The method
 
