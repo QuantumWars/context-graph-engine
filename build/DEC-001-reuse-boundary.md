@@ -1,6 +1,11 @@
 # DEC-001 — Import `memory/`'s file-locking primitive; reimplement everything else, with a reason per item
 
-_Decided 2026-08-19 · status: current_
+_Decided 2026-08-19 · status: superseded by DEC-010_
+
+> **Superseded when this engine became its own repository.** Every verdict below still
+> holds except one: `memory/src/lock.ts` is now **vendored**, not imported. A relative
+> path four levels up resolves at exactly one filesystem depth, so a standalone clone
+> failed at typecheck. `DEC-010` records it. Nothing here was edited but this line.
 
 Stage 1 algorithms are written standalone and pure, with **no imports from `memory/`**.
 Reuse is a Stage 2 (interlink) decision, and it is settled per primitive, not in bulk:
