@@ -29,17 +29,35 @@ export interface Link {
 }
 
 /**
- * PROVENANCE: **declared placeholder.** A lexical score below this is treated as no signal.
- * Chosen so that a query sharing no token with a document cannot clear it, and nothing more —
- * it has not been measured against any query distribution, because none exists yet. Calibrating
- * it needs the evaluation harness named in `docs/future-work/README.md`.
+ * PROVENANCE: **calibrated**, 2026-08-19, by `eval/sweep.ts` over `eval/dataset.ts` — 19
+ * labelled queries, k=10, one constant varied at a time.
+ *
+ * Was `0.01`, adopted on the reasoning that a query sharing no token should not clear it. That
+ * reasoning was sound and the value was far too low: the sweep scored `0.01` at **0.509** and
+ * `0.4` at **0.819**, lifting precision@10 from 39.6% to 78.8% and taking false serves from 2
+ * to 0. At `0.01` a single incidental token — "by", "the", "schema" — was enough to serve an
+ * answer to a question the corpus knows nothing about.
+ *
+ * THE TRADE, because it is not free: false abstains went 0 → 1 and recall@10 fell 89.6% → 87.5%.
+ * `FALSE_SERVE_PENALTY` is twice `FALSE_ABSTAIN_PENALTY` (`eval/metrics.ts`), a judgement rather
+ * than a measurement — a wrong answer propagates into whatever reads it, a refusal only costs the
+ * query. Change that ratio and the sweep may choose differently.
+ *
+ * The plateau is wide: 0.4 and 0.5 score identically, 0.3 scores 0.627, 0.6 falls to 0.529. A
+ * value in the middle of a plateau is a safer choice than one on an edge.
+ *
+ * Reproduce: `bun --cwd engine eval/sweep.ts`
  */
-export const LEXICAL_FLOOR = 0.01;
+export const LEXICAL_FLOOR = 0.4;
 
 /**
- * PROVENANCE: **declared placeholder.** A structural score is a count of edges to a lexical
- * seed, so 1 is the smallest value that means "connected to something the query matched".
- * Not calibrated; same harness would settle it.
+ * PROVENANCE: **calibrated**, 2026-08-19, by `eval/sweep.ts`, weakly — it was already the best
+ * of the four values tested (1: 0.509, 2: 0.484, 3: 0.453, 4: 0.339 at the then-shipped lexical
+ * floor), and the reasoning that produced it survives: a structural score is a count of edges to
+ * a lexical seed, so 1 is the smallest value that means "connected to something the query
+ * matched". Raising it trades recall for MRR monotonically, with no interior optimum.
+ *
+ * Reproduce: `bun --cwd engine eval/sweep.ts`
  */
 export const STRUCTURAL_FLOOR = 1;
 
@@ -143,6 +161,9 @@ export interface RetrieveOptions {
   readonly limit?: number;
   readonly lexicalFloor?: number;
   readonly structuralFloor?: number;
+  /** Overrides `RRF_K`. Exists so the evaluation harness can sweep it — a constant that cannot
+   *  be varied cannot be calibrated, and one that cannot be calibrated stays a placeholder. */
+  readonly rrfK?: number;
 }
 
 /**
@@ -179,7 +200,7 @@ export function retrieve(
     { name: 'structural', results: structural.results.filter((r) => r.score >= strFloor) },
   ];
 
-  const items = fuse(above).slice(0, limit);
+  const items = fuse(above, opts.rrfK).slice(0, limit);
 
   if (items.length === 0) {
     return {

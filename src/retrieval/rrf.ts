@@ -34,11 +34,25 @@
  * The paper's own default. `k` damps the dominance of a single high rank, so one channel's
  * outstanding vote becomes comparable to agreement across channels rather than overwhelming it.
  *
- * PROVENANCE: **declared placeholder — adopted, not calibrated.** 60 is the source paper's
- * default and is reported to work well generally; it has *not* been measured against this
- * engine's own query distribution, because no such distribution exists yet. Calibrating it
- * needs the evaluation harness, which is post-spine work. `memory/src/recall.ts:361` carries
- * the same constant with the same declared status, reached independently.
+ * PROVENANCE: **declared placeholder** — and now for a *measured* reason rather than an
+ * unexamined one, which is a materially better place to be.
+ *
+ * `eval/sweep.ts` ran it over 1, 5, 10, 20, 30, 60, 120 and 300 against 19 labelled queries.
+ * **Every value scored identically (0.819).** The sweep cannot calibrate it, and the cause is
+ * structural rather than a shortage of data: `structuralChannel` excludes every lexical seed by
+ * construction, so **no document is ever in both channels** — measured at 0 overlaps across all
+ * 19 queries. With one contribution per item the score is `1/(k+rank)`, which is monotonically
+ * decreasing in rank for any positive k, so the ordering is by rank and k cannot affect it.
+ *
+ * RRF's entire mechanism is rewarding agreement across channels, and this engine's channels are
+ * disjoint by design. A variant that lets seeds also score structurally was measured: it does
+ * create overlap, and at the calibrated `LEXICAL_FLOOR` it scores **0.819 — identical**. So the
+ * variant was not adopted.
+ *
+ * What would settle it: channels that can genuinely overlap *and* a labelled set where the
+ * difference matters. Until then 60 stands as the source paper's default (Cormack, Clarke &
+ * Buettcher, SIGIR 2009), and no document may describe it as tuned.
+ * `memory/src/recall.ts:361` carries the same constant with the same declared status.
  */
 export const RRF_K = 60;
 
@@ -89,7 +103,8 @@ export interface FusedItem {
  * it, two runs over the same input could disagree and the difference would look like a bug
  * somewhere more interesting.
  */
-export function fuse(channels: readonly Channel[], k: number = RRF_K): readonly FusedItem[] {
+export function fuse(channels: readonly Channel[], k: number | undefined = RRF_K): readonly FusedItem[] {
+  if (k === undefined) k = RRF_K;
   if (!Number.isFinite(k) || k <= 0) {
     throw new FusionError('invalid_k', `k must be a positive finite number, got ${String(k)}`);
   }
