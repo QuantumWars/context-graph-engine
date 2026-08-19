@@ -81,6 +81,8 @@ describe('the retrieval record kind now has a writer', () => {
     await s.append({ kind: 'decision', id: 'd1', content: { text: 'ship the gate' } });
     await s.append({ kind: 'node', id: 'n1', content: { text: 'a note about the gate' } });
     await s.append({ kind: 'edge', id: 'e1', content: {}, source: 'd1', target: 'n1', edgeType: 'CAUSED', weight: 1 });
+    await s.append({ kind: 'node', id: 'n2', content: { text: 'a note about the gate, reworded' } });
+    await s.merge(['n1', 'n2'], 'n1', 'the same note twice');
     await s.retract('n1', 'superseded');
     await s.purge('d1', 'contained a credential');
     const { decision } = retrieve(

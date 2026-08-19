@@ -20,6 +20,9 @@ import { closingValidUntil } from '../temporal/retract';
 import { chainReport, findChains, type CausalEdge, type ChainReport, type Direction } from '../decision/causal';
 import { readLog, withLoggedMutation } from './log';
 import { assertConsistent, type RetrievalDecision } from '../retrieval/channels';
+import { block } from '../resolve/blocking';
+import { cluster, merged, type Cluster } from '../resolve/cluster';
+import type { Candidate } from '../resolve/similarity';
 import type { RecordKind, RecordMeta, RecordMetaInput, StoredRecord } from './records';
 import { ensureStoreDir, type StorePaths } from './paths';
 
@@ -27,7 +30,11 @@ export type StoreErrorCode =
   | 'chain_invalid'
   | 'not_found'
   | 'already_purged'
-  | 'duplicate_id';
+  | 'duplicate_id'
+  | 'merge_too_small'
+  | 'canonical_not_a_member'
+  | 'member_already_merged'
+  | 'canonical_of_active_merge';
 
 export class StoreError extends Error {
   readonly code: StoreErrorCode;
@@ -65,6 +72,53 @@ export interface RecordInput {
   readonly target?: string;
   readonly edgeType?: string;
   readonly weight?: number;
+}
+
+
+/** A record's display name, for clustering. Content is caller-shaped, so this is defensive. */
+function nameOf(content: Json | null): string {
+  if (content === null || typeof content !== 'object' || Array.isArray(content)) return '';
+  const c = content as Record<string, unknown>;
+  for (const k of ['name', 'title', 'text', 'scenario']) {
+    const v = c[k];
+    if (typeof v === 'string' && v.trim() !== '') return v;
+  }
+  return '';
+}
+
+/**
+ * The merges in force at `at`, honouring retraction.
+ *
+ * A merge is a record, so retracting it closes its window exactly as `DEC-012` says — there is no
+ * separate un-merge, because a second undo mechanism is how two paths drift apart.
+ *
+ * `bound` decides what happens at the exact closing instant, and the two callers genuinely want
+ * different answers. A read (`inclusive`) follows Algorithm 2, where a window is open at both its
+ * endpoints. The purge guard (`after`) asks a different question — *will this merge redirect any
+ * FUTURE read* — and a merge closing at this instant will not.
+ *
+ * Without that split, the refusal below named a remedy that did not work: retract the merge and
+ * purge immediately, both land in the same second at `now()`'s one-second resolution, and the
+ * purge was refused again for a merge the caller had just closed. An error that instructs an
+ * action and then rejects it is worse than no message.
+ */
+function activeMergesIn(
+  records: readonly StoredRecord[],
+  at: string,
+  bound: 'inclusive' | 'after' = 'inclusive',
+): readonly StoredRecord[] {
+  const merges = records.filter((r) => r.kind === 'merge');
+  return merges.filter((m) => {
+    let end = m.meta.validUntil;
+    for (const r of records) {
+      if (r.kind !== 'retraction' || r.meta.subject !== m.id) continue;
+      end = closingValidUntil(end, r.meta.validFrom ?? r.meta.recordedAt);
+    }
+    if (end === null) return true;
+    const a = parseInstant(at), e = parseInstant(end);
+    if (!a.ok || !e.ok) return true;
+    return bound === 'after' ? a.ms < e.ms : a.ms <= e.ms;
+  });
 }
 
 export class Store {
@@ -199,6 +253,28 @@ export class Store {
       if (target.content === null && target.salt === null) {
         throw new StoreError('already_purged', `${JSON.stringify(id)} has already been purged`);
       }
+      // Refuse to purge the canonical of an active merge.
+      //
+      // Measured before this guard existed: purging the canonical made `contentOf` return null
+      // for EVERY member, because reads redirect to a record whose content is gone — while each
+      // member's own content sat untouched on disk. That is the worst state available: it reads
+      // as erased and is not. Someone purging a leaked credential would see null and reasonably
+      // conclude it was gone.
+      //
+      // Cascading the purge to the members was the alternative and is rejected: an implicit
+      // destructive action across records the caller did not name is exactly what `DEC-004`'s
+      // "purge is the remedy" must not become. Refusing says what to do instead — retract the
+      // merge, or purge every member explicitly.
+      const blocking = activeMergesIn(current, this.deps.now(), 'after')
+        .find((m) => m.meta.canonical === id);
+      if (blocking !== undefined) {
+        throw new StoreError(
+          'canonical_of_active_merge',
+          `${JSON.stringify(id)} is the canonical record of merge ${JSON.stringify(blocking.id)}, ` +
+            `so purging it would make every member read as empty while their own content remains on ` +
+            `disk. Retract the merge first, or purge each member: ${(blocking.meta.members ?? []).join(', ')}.`,
+        );
+      }
       const at = this.deps.now();
       const tombstone = this.build(current, 'tombstone', `${id}:purged:${at}`, { reason }, {
         recordedAt: at, validFrom: at, validUntil: null,
@@ -246,12 +322,94 @@ export class Store {
     });
   }
 
+  /**
+   * Propose clusters. **Writes nothing** — `DEC-012` makes a cluster derived, and a derived thing
+   * that persists is a second store.
+   *
+   * A proposal is a suggestion about identity, not a fact. It carries the weakest link holding
+   * each cluster together so a caller can see what it is being asked to believe, rather than a
+   * merged blob with a confidence attached.
+   */
+  suggest(minScore = 0.6): readonly Cluster[] {
+    const named: Candidate[] = this.live()
+      .filter((r) => r.kind === 'node' || r.kind === 'decision')
+      .map((r) => ({ id: r.id, name: nameOf(r.content), type: r.kind }))
+      .filter((c) => c.name !== '');
+    if (named.length < 2) return [];
+    const pairs = block(named, { typeScoped: true, phonetic: true }).pairs;
+    return merged(cluster(named.map((c) => c.id), pairs, minScore));
+  }
+
+  /**
+   * Assert that several records are one thing.
+   *
+   * Nothing is rewritten. `DEC-012`: the members stay byte for byte, their digests are untouched,
+   * and reads redirect through this record to `canonical`. The record carries ids and a reason and
+   * **never content**, so purging a member later needs no purge here.
+   *
+   * There is no automatic path to this method and there must not be. The resolver proposes; a
+   * caller disposes.
+   */
+  async merge(members: readonly string[], canonical: string, reason: string | null = null): Promise<StoredRecord> {
+    return withLoggedMutation(this.paths, (current) => {
+      if (members.length < 2) {
+        throw new StoreError('merge_too_small', `a merge needs at least two members, got ${members.length}`);
+      }
+      if (!members.includes(canonical)) {
+        throw new StoreError('canonical_not_a_member', `${JSON.stringify(canonical)} is not among the members`);
+      }
+      for (const m of members) {
+        if (!current.some((r) => r.id === m)) {
+          throw new StoreError('not_found', `no record with id ${JSON.stringify(m)}`);
+        }
+      }
+      // A record already inside an active merge cannot join a second one. Two competing identity
+      // claims would make `canonicalOf` order-dependent, and an identity that depends on read
+      // order is not an identity.
+      const existing = activeMergesIn(current, this.deps.now());
+      for (const m of members) {
+        if (existing.some((x) => (x.meta.members ?? []).includes(m))) {
+          throw new StoreError('member_already_merged', `${JSON.stringify(m)} is already in an active merge`);
+        }
+      }
+      const at = this.deps.now();
+      const rec = this.build(current, 'merge', `merge:${[...members].sort().join('+')}`, { reason }, {
+        recordedAt: at, validFrom: at, validUntil: null,
+        members: [...members].sort(), canonical, reason,
+      });
+      this.records = [...current, rec];
+      return { append: [rec], value: rec };
+    });
+  }
+
   // ───────────────────────── read paths ─────────────────────────
   // Every one of these is enumerated in test/store.test.ts's READ_PATHS list. A read path
   // added here without being added there fails that test by construction.
 
   /** 1 */ contentOf(id: string): Json | null {
-    return this.byId(id)?.content ?? null;
+    // Resolves through an active merge. A read for a merged record answers from the canonical
+    // one — and `resolveId` says which merge redirected it, so an answer can always explain why
+    // it came from a different record than the one asked for.
+    return this.byId(this.resolveId(id).canonical)?.content ?? null;
+  }
+
+  /**
+   * 11
+   * Where a read for `id` actually lands, and what redirected it.
+   *
+   * `via` is `null` when nothing redirected. An answer that silently comes from a different
+   * record than the one asked for is the same failure as a retrieval that cannot say why it
+   * served — so the redirect is always reportable.
+   */
+  resolveId(id: string, at?: string): { readonly requested: string; readonly canonical: string; readonly via: string | null } {
+    const when = at ?? this.deps.now();
+    for (const m of activeMergesIn(this.records, when)) {
+      const members = m.meta.members ?? [];
+      if (members.includes(id) && m.meta.canonical !== undefined && m.meta.canonical !== id) {
+        return { requested: id, canonical: m.meta.canonical, via: m.id };
+      }
+    }
+    return { requested: id, canonical: id, via: null };
   }
   /** 2 */ getNode(id: string): StoredRecord | undefined {
     return this.live().find((r) => r.id === id && r.kind === 'node');
@@ -309,7 +467,7 @@ export class Store {
   /** Records that still carry content — the basis of every content read path above. */
   private live(): readonly StoredRecord[] {
     return this.records.filter(
-      (r) => r.content !== null && r.kind !== 'retraction' && r.kind !== 'tombstone',
+      (r) => r.content !== null && r.kind !== 'retraction' && r.kind !== 'tombstone' && r.kind !== 'merge',
     );
   }
 

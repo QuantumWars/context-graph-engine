@@ -15,13 +15,16 @@ import { readLog } from '../src/store/log';
  * anybody has to remember.
  */
 const READ_PATHS = [
-  'contentOf', 'getNode', 'listNodes', 'getDecision', 'listDecisions',
+  'contentOf', 'resolveId', 'getNode', 'listNodes', 'getDecision', 'listDecisions',
   'getEdge', 'listEdges', 'stateAt', 'why', 'searchable',
 ] as const;
 
 /** Does this read path still surface `id`? One probe per path, so all ten are really exercised. */
 const probes: Record<(typeof READ_PATHS)[number], (s: Store, id: string) => boolean> = {
   contentOf: (s, id) => s.contentOf(id) !== null,
+  // A read for an unmerged id resolves to itself; for a merged one it redirects and names the
+  // merge. Either way the id is still reachable, which is what this probe asks.
+  resolveId: (s, id) => s.all().some((r) => r.id === s.resolveId(id).canonical && r.content !== null),
   getNode: (s, id) => s.getNode(id) !== undefined,
   listNodes: (s, id) => s.listNodes().some((r) => r.id === id),
   getDecision: (s, id) => s.getDecision(id) !== undefined,
@@ -103,7 +106,7 @@ describe('Task 2.1 — one store per fact, across a save and a reload', () => {
     const b = await Store.open(paths, deps);
 
     const targets: Record<string, string> = {
-      contentOf: 'd1', getNode: 'n1', listNodes: 'n1', getDecision: 'd1',
+      contentOf: 'd1', resolveId: 'd1', getNode: 'n1', listNodes: 'n1', getDecision: 'd1',
       listDecisions: 'd1', getEdge: 'e1', listEdges: 'e1', stateAt: 'd1',
       why: 'd2', searchable: 'd1',
     };
@@ -248,7 +251,12 @@ describe('the read-path list cannot silently fall out of date', () => {
     expect(end).toBeGreaterThan(start);
 
     const section = src.slice(start, end);
-    const declared = [...section.matchAll(/^\s*\/\*\* \d+ \*\/\s*(\w+)\s*[(<]/gm)].map((m) => m[1] as string);
+    // Detects a method declaration regardless of what precedes it on the line. The first version
+    // required a single-line `/** N */` marker, and Phase 8 added `resolveId` with a multi-line
+    // doc comment — which slipped straight past a guard built to prevent exactly that. The guard
+    // was right to exist and wrong in its pattern, which is the harder failure to notice.
+    const declared = [...section.matchAll(/^\s{2}(?:\/\*\*[^*]*\*\/\s*)?([a-z]\w*)\s*[(<]/gm)]
+      .map((m) => m[1] as string);
 
     expect(declared.length).toBeGreaterThan(0);              // anti-vacuity
     expect(declared.sort()).toEqual([...READ_PATHS].sort());

@@ -138,7 +138,16 @@ describe('tools/list — over stdio, against the bundle', () => {
 
     expect(tools.length).toBeGreaterThan(0);                       // anti-vacuity
     const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(['at', 'find', 'link', 'log', 'purge', 'record', 'retract', 'verify', 'why']);
+    // Read the CLI's verb list from source rather than restating it. A hardcoded expectation
+    // here checked only that the MCP surface had not changed — it could not notice a CLI verb
+    // with no MCP tool, which is the thing this test is named for. Adding `suggest` and `merge`
+    // to both surfaces made it red for being different, not for being wrong.
+    const cliSrc = readFileSync(join(REPO, 'src', 'cli.ts'), 'utf8');
+    const known = /^\s*const known = \[(.+?)\];/m.exec(cliSrc);
+    expect(known).not.toBeNull();
+    const verbs = [...known![1]!.matchAll(/'([a-z-]+)'/g)].map((m) => m[1] as string).sort();
+    expect(verbs.length).toBeGreaterThan(5);                       // anti-vacuity on the parse
+    expect(names).toEqual(verbs);
 
     for (const t of tools) {
       expect({ tool: t.name, hasDescription: (t.description ?? '').length > 40 })

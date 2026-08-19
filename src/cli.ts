@@ -51,6 +51,10 @@ const USAGE = `${B}context graph engine${O}
   ${B}engine at${O}      <iso> [--as-of <iso>]    point-in-time snapshot (two time axes)
   ${B}engine why${O}     <id> [--direction upstream|downstream] [--depth 5]
   ${B}engine find${O}    <query...> [--no-record]  lexical + structural, fused (records the decision)
+  ${B}engine suggest${O} [--min 0.6]                records that look like the same thing (writes nothing)
+  ${B}engine merge${O}   <id> <id> [...] --canonical <id> [--reason <s>]
+                                               assert they ARE one thing; reads then resolve to
+                                               the canonical. Retract the merge to undo it.
   ${B}engine verify${O}                           check the whole chain
   ${B}engine log${O}      [--raw]                 list the records
 
@@ -79,7 +83,7 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const known = ['record', 'link', 'retract', 'purge', 'at', 'why', 'find', 'verify', 'log'];
+  const known = ['record', 'link', 'retract', 'purge', 'at', 'why', 'find', 'suggest', 'merge', 'verify', 'log'];
   if (!known.includes(args.cmd)) {
     console.error(`${R}error${O}: unknown command ${JSON.stringify(args.cmd)}\n${D}known: ${known.join(', ')}${O}\n`);
     return 2;
@@ -168,6 +172,32 @@ async function main(): Promise<number> {
       for (const i of items) {
         console.log(`  ${G}→${O} ${i.id}  ${i.fusedScore.toFixed(5)}  ${D}${i.contributions.map((c) => `${c.channel}#${c.rank}`).join(' ')}${O}`);
       }
+      return 0;
+    }
+    case 'suggest': {
+      // Derived, never stored — DEC-012. This verb writes nothing, deliberately.
+      const proposals = store.suggest(Number(str('min') ?? '0.6'));
+      if (proposals.length === 0) { console.log(`${D}nothing looks duplicated above that score${O}`); return 0; }
+      for (const p of proposals) {
+        console.log(`\n${B}${p.members.join('  ')}${O}`);
+        const w = p.weakestLink;
+        if (w !== null) {
+          console.log(`  weakest link ${Y}${w.score.toFixed(3)}${O}  ${D}${w.a} ~ ${w.b}${O}`);
+        }
+        console.log(`  ${D}to accept: engine merge ${p.members.join(' ')} --canonical ${p.members[0]}${O}`);
+      }
+      console.log(`\n${D}These are suggestions and nothing was written. Similarity is not transitive —${O}`);
+      console.log(`${D}check the weakest link before accepting a group of more than two.${O}`);
+      return 0;
+    }
+    case 'merge': {
+      const members = args.positional;
+      const canonical = str('canonical');
+      if (canonical === undefined) { console.error(`${R}error${O}: --canonical is required — say which record the others resolve to`); return 2; }
+      const rec = await store.merge(members, canonical, str('reason') ?? null);
+      console.log(`${G}merged${O} ${members.join(' + ')} ${B}→ ${canonical}${O}  seq=${rec.seq}`);
+      console.log(`${D}  nothing was rewritten; reads for the others now answer from ${canonical} and name ${rec.id}.${O}`);
+      console.log(`${D}  to undo: engine retract ${rec.id}${O}`);
       return 0;
     }
     case 'verify': {

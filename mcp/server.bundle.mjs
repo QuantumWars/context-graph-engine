@@ -29726,7 +29726,7 @@ async function withFileLock(path, fn, opts = {}) {
 }
 
 // src/store/records.ts
-var RECORD_KINDS = ["node", "edge", "decision", "retraction", "tombstone", "retrieval"];
+var RECORD_KINDS = ["node", "edge", "decision", "retraction", "tombstone", "retrieval", "merge"];
 function isRecordKind(v) {
   return typeof v === "string" && RECORD_KINDS.includes(v);
 }
@@ -29868,6 +29868,213 @@ function assertConsistent(d) {
   }
 }
 
+// src/resolve/similarity.ts
+var WEIGHTS = { name: 0.7, type: 0.2, props: 0.1 };
+function trigrams(s) {
+  const t = ` ${s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+  const out = new Set;
+  for (let i = 0;i + 3 <= t.length; i++)
+    out.add(t.slice(i, i + 3));
+  return out;
+}
+function jaccard(a, b) {
+  if (a.size === 0 && b.size === 0)
+    return 1;
+  let shared = 0;
+  for (const x of a)
+    if (b.has(x))
+      shared++;
+  const union3 = a.size + b.size - shared;
+  return union3 === 0 ? 0 : shared / union3;
+}
+function similarity(a, b) {
+  const name = jaccard(trigrams(a.name), trigrams(b.name));
+  const type = a.type === undefined || b.type === undefined ? 0 : a.type === b.type ? 1 : 0;
+  const ka = Object.keys(a.props ?? {});
+  const kb = Object.keys(b.props ?? {});
+  const shared = ka.filter((k) => kb.includes(k));
+  const props = shared.length === 0 ? 0 : shared.filter((k) => (a.props ?? {})[k] === (b.props ?? {})[k]).length / shared.length;
+  return {
+    total: WEIGHTS.name * name + WEIGHTS.type * type + WEIGHTS.props * props,
+    name,
+    type,
+    props
+  };
+}
+
+// src/resolve/blocking.ts
+var TOKEN_PREFIX = 4;
+var MIN_TOKEN_LENGTH = 3;
+function tokens(name) {
+  const parts = name.toLowerCase().replace(/[_\-/.]+/g, " ").split(/\s+/).filter(Boolean);
+  const kept = parts.filter((t) => t.length >= MIN_TOKEN_LENGTH);
+  return kept.length > 0 ? kept : parts.length > 0 ? [parts.join("")] : [];
+}
+function soundex(word) {
+  const w = word.toUpperCase().replace(/[^A-Z]/g, "");
+  if (w === "")
+    return "";
+  const map3 = {
+    B: "1",
+    F: "1",
+    P: "1",
+    V: "1",
+    C: "2",
+    G: "2",
+    J: "2",
+    K: "2",
+    Q: "2",
+    S: "2",
+    X: "2",
+    Z: "2",
+    D: "3",
+    T: "3",
+    L: "4",
+    M: "5",
+    N: "5",
+    R: "6"
+  };
+  let out = w[0];
+  for (const ch of w.slice(1)) {
+    const d = map3[ch];
+    if (d !== undefined && d !== out[out.length - 1])
+      out += d;
+  }
+  return (out + "000").slice(0, 4);
+}
+function blockKeys(c, o = {}) {
+  const keys = new Set;
+  const ts = tokens(c.name);
+  if (ts.length === 0) {
+    keys.add("nameless:");
+    return keys;
+  }
+  for (const t of ts)
+    keys.add(`tok:${t.slice(0, TOKEN_PREFIX)}`);
+  if (o.typeScoped === true) {
+    keys.add(`type:${(c.type ?? "unknown").toLowerCase()}:${ts[0].slice(0, TOKEN_PREFIX)}`);
+  }
+  if (o.phonetic === true)
+    for (const t of ts)
+      keys.add(`pho:${soundex(t)}`);
+  return keys;
+}
+function capBySimilarity(pairs, max) {
+  if (max === undefined || max <= 0)
+    return pairs;
+  const byRecord = new Map;
+  const push = (id, p) => {
+    const arr = byRecord.get(id);
+    if (arr === undefined)
+      byRecord.set(id, [p]);
+    else
+      arr.push(p);
+  };
+  for (const p of pairs) {
+    push(p.a, p);
+    push(p.b, p);
+  }
+  const kept = new Set;
+  for (const [, ps] of byRecord) {
+    ps.sort((x, y) => y.score - x.score || (`${x.a} ${x.b}` < `${y.a} ${y.b}` ? -1 : 1));
+    for (const p of ps.slice(0, max))
+      kept.add(`${p.a} ${p.b}`);
+  }
+  return pairs.filter((p) => kept.has(`${p.a} ${p.b}`));
+}
+function block(records, o = {}) {
+  const blocks = new Map;
+  const byId = new Map;
+  for (const r of records) {
+    byId.set(r.id, r);
+    for (const k of blockKeys(r, o)) {
+      const arr = blocks.get(k);
+      if (arr === undefined)
+        blocks.set(k, [r.id]);
+      else
+        arr.push(r.id);
+    }
+  }
+  const seen = new Set;
+  const pairs = [];
+  for (const [, ids] of blocks) {
+    for (let i = 0;i < ids.length; i++) {
+      for (let j = i + 1;j < ids.length; j++) {
+        const x = ids[i];
+        const y = ids[j];
+        const [a, b] = x < y ? [x, y] : [y, x];
+        const key = `${a} ${b}`;
+        if (seen.has(key))
+          continue;
+        seen.add(key);
+        pairs.push({ a, b, score: similarity(byId.get(a), byId.get(b)).total });
+      }
+    }
+  }
+  const n = records.length;
+  return {
+    pairs: capBySimilarity(pairs, o.maxCandidates),
+    allPairs: n * (n - 1) / 2,
+    compared: pairs.length,
+    blocks: blocks.size
+  };
+}
+
+// src/resolve/cluster.ts
+function cluster(ids, pairs, minScore) {
+  const parent = new Map;
+  for (const id of ids)
+    parent.set(id, id);
+  const find = (x) => {
+    let r = x;
+    while (parent.get(r) !== r)
+      r = parent.get(r);
+    let c = x;
+    while (parent.get(c) !== r) {
+      const n = parent.get(c);
+      parent.set(c, r);
+      c = n;
+    }
+    return r;
+  };
+  const accepted = pairs.filter((p) => p.score >= minScore).slice().sort((a, b) => b.score - a.score || (`${a.a} ${a.b}` < `${b.a} ${b.b}` ? -1 : 1));
+  const mergeEdges = [];
+  for (const p of accepted) {
+    const ra = find(p.a);
+    const rb = find(p.b);
+    if (ra === rb)
+      continue;
+    parent.set(ra, rb);
+    mergeEdges.push(p);
+  }
+  const groups = new Map;
+  for (const id of ids) {
+    const r = find(id);
+    const g = groups.get(r);
+    if (g === undefined)
+      groups.set(r, [id]);
+    else
+      g.push(id);
+  }
+  const out = [];
+  for (const [, members] of groups) {
+    members.sort();
+    const inside = new Set(members);
+    const held = mergeEdges.filter((p) => inside.has(p.a) && inside.has(p.b));
+    out.push({
+      id: members[0],
+      members,
+      weakestLink: held.length === 0 ? null : held.reduce((w, p) => p.score < w.score ? p : w),
+      merges: held.length
+    });
+  }
+  out.sort((a, b) => a.id < b.id ? -1 : 1);
+  return out;
+}
+function merged(clusters) {
+  return clusters.filter((c) => c.members.length > 1);
+}
+
 // src/store/store.ts
 class StoreError extends Error {
   code;
@@ -29887,6 +30094,34 @@ var realDeps = {
     return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
   }
 };
+function nameOf(content) {
+  if (content === null || typeof content !== "object" || Array.isArray(content))
+    return "";
+  const c = content;
+  for (const k of ["name", "title", "text", "scenario"]) {
+    const v = c[k];
+    if (typeof v === "string" && v.trim() !== "")
+      return v;
+  }
+  return "";
+}
+function activeMergesIn(records, at, bound = "inclusive") {
+  const merges = records.filter((r) => r.kind === "merge");
+  return merges.filter((m) => {
+    let end = m.meta.validUntil;
+    for (const r of records) {
+      if (r.kind !== "retraction" || r.meta.subject !== m.id)
+        continue;
+      end = closingValidUntil(end, r.meta.validFrom ?? r.meta.recordedAt);
+    }
+    if (end === null)
+      return true;
+    const a = parseInstant(at), e = parseInstant(end);
+    if (!a.ok || !e.ok)
+      return true;
+    return bound === "after" ? a.ms < e.ms : a.ms <= e.ms;
+  });
+}
 
 class Store {
   paths;
@@ -29968,6 +30203,10 @@ class Store {
       if (target.content === null && target.salt === null) {
         throw new StoreError("already_purged", `${JSON.stringify(id)} has already been purged`);
       }
+      const blocking = activeMergesIn(current, this.deps.now(), "after").find((m) => m.meta.canonical === id);
+      if (blocking !== undefined) {
+        throw new StoreError("canonical_of_active_merge", `${JSON.stringify(id)} is the canonical record of merge ${JSON.stringify(blocking.id)}, ` + `so purging it would make every member read as empty while their own content remains on ` + `disk. Retract the merge first, or purge each member: ${(blocking.meta.members ?? []).join(", ")}.`);
+      }
       const at = this.deps.now();
       const tombstone = this.build(current, "tombstone", `${id}:purged:${at}`, { reason }, {
         recordedAt: at,
@@ -30007,8 +30246,57 @@ class Store {
       return { append: [rec], value: rec };
     });
   }
+  suggest(minScore = 0.6) {
+    const named = this.live().filter((r) => r.kind === "node" || r.kind === "decision").map((r) => ({ id: r.id, name: nameOf(r.content), type: r.kind })).filter((c) => c.name !== "");
+    if (named.length < 2)
+      return [];
+    const pairs = block(named, { typeScoped: true, phonetic: true }).pairs;
+    return merged(cluster(named.map((c) => c.id), pairs, minScore));
+  }
+  async merge(members, canonical, reason = null) {
+    return withLoggedMutation(this.paths, (current) => {
+      if (members.length < 2) {
+        throw new StoreError("merge_too_small", `a merge needs at least two members, got ${members.length}`);
+      }
+      if (!members.includes(canonical)) {
+        throw new StoreError("canonical_not_a_member", `${JSON.stringify(canonical)} is not among the members`);
+      }
+      for (const m of members) {
+        if (!current.some((r) => r.id === m)) {
+          throw new StoreError("not_found", `no record with id ${JSON.stringify(m)}`);
+        }
+      }
+      const existing = activeMergesIn(current, this.deps.now());
+      for (const m of members) {
+        if (existing.some((x) => (x.meta.members ?? []).includes(m))) {
+          throw new StoreError("member_already_merged", `${JSON.stringify(m)} is already in an active merge`);
+        }
+      }
+      const at = this.deps.now();
+      const rec = this.build(current, "merge", `merge:${[...members].sort().join("+")}`, { reason }, {
+        recordedAt: at,
+        validFrom: at,
+        validUntil: null,
+        members: [...members].sort(),
+        canonical,
+        reason
+      });
+      this.records = [...current, rec];
+      return { append: [rec], value: rec };
+    });
+  }
   contentOf(id) {
-    return this.byId(id)?.content ?? null;
+    return this.byId(this.resolveId(id).canonical)?.content ?? null;
+  }
+  resolveId(id, at) {
+    const when = at ?? this.deps.now();
+    for (const m of activeMergesIn(this.records, when)) {
+      const members = m.meta.members ?? [];
+      if (members.includes(id) && m.meta.canonical !== undefined && m.meta.canonical !== id) {
+        return { requested: id, canonical: m.meta.canonical, via: m.id };
+      }
+    }
+    return { requested: id, canonical: id, via: null };
   }
   getNode(id) {
     return this.live().find((r) => r.id === id && r.kind === "node");
@@ -30059,7 +30347,7 @@ class Store {
     return verifyChain(this.records);
   }
   live() {
-    return this.records.filter((r) => r.content !== null && r.kind !== "retraction" && r.kind !== "tombstone");
+    return this.records.filter((r) => r.content !== null && r.kind !== "retraction" && r.kind !== "tombstone" && r.kind !== "merge");
   }
   causalEdges() {
     return this.live().filter((r) => r.kind === "edge").map((r) => ({
@@ -30460,6 +30748,53 @@ server.registerTool("find", {
       reason: decision.reason,
       channels: decision.channels,
       results: items.map((i) => ({ id: i.id, fusedScore: i.fusedScore, contributions: i.contributions }))
+    });
+  } catch (e) {
+    return fail(e);
+  }
+});
+server.registerTool("suggest", {
+  title: "Find records that look like the same thing",
+  description: "Propose groups of records that may be duplicates of one another. This is a SUGGESTION and " + "writes nothing \u2014 no record is created, changed or merged. Similarity is not transitive, so " + "each group reports the weakest link holding it together: a group whose weakest link is 0.42 " + "is a much weaker claim than one at 0.95. Read the weakest link before accepting a group of " + "more than two. Confirm a group with the merge tool.",
+  inputSchema: {
+    minScore: exports_external.number().min(0).max(1).default(0.6).describe("the pairwise score below which two records are not considered the same")
+  }
+}, async ({ minScore }) => {
+  try {
+    const s = await Store.open(paths());
+    const proposals = s.suggest(minScore);
+    return ok({
+      proposals: proposals.map((p) => ({
+        members: p.members,
+        weakestLink: p.weakestLink,
+        confirmWith: { tool: "merge", members: p.members, canonical: p.members[0] }
+      })),
+      wroteNothing: true,
+      note: "Suggestions only. Nothing was written. Similarity is not transitive \u2014 check weakestLink."
+    });
+  } catch (e) {
+    return fail(e);
+  }
+});
+server.registerTool("merge", {
+  title: "Assert that several records are one thing",
+  description: "Record that these records all name the same thing, and that reads for any of them should " + "answer from the canonical one. Nothing is rewritten: every member keeps its own content and " + "digest, and the merge is a new record in the chain. A read that was redirected always names " + "the merge that redirected it. To undo, retract the merge record \u2014 there is no un-merge. " + "Merging is never automatic; you are asserting this identity, so only do so when it is true.",
+  inputSchema: {
+    members: exports_external.array(exports_external.string().min(1)).min(2).describe("at least two record ids"),
+    canonical: exports_external.string().min(1).describe("which member the others resolve to. Must be one of members."),
+    reason: exports_external.string().optional().describe("why these are one thing")
+  }
+}, async ({ members, canonical, reason }) => {
+  try {
+    const s = await Store.open(paths());
+    const r = await s.merge(members, canonical, reason ?? null);
+    return ok({
+      merge: r.id,
+      members,
+      canonical,
+      seq: r.seq,
+      undoWith: { tool: "retract", id: r.id },
+      note: "Nothing was rewritten. Reads for the other members now answer from the canonical."
     });
   } catch (e) {
     return fail(e);

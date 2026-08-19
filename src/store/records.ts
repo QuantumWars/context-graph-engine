@@ -12,7 +12,7 @@ import type { ChainEntry } from '../provenance/chain';
 import type { CausalEdgeType } from '../decision/causal';
 import type { WorkspaceMethod } from './paths';
 
-export const RECORD_KINDS = ['node', 'edge', 'decision', 'retraction', 'tombstone', 'retrieval'] as const;
+export const RECORD_KINDS = ['node', 'edge', 'decision', 'retraction', 'tombstone', 'retrieval', 'merge'] as const;
 export type RecordKind = (typeof RECORD_KINDS)[number];
 
 export interface RecordMeta {
@@ -34,6 +34,10 @@ export interface RecordMeta {
   readonly reason?: string | null;
   readonly cascadedFrom?: string;
   readonly scope?: 'this-store-only';
+  /** Merge-only. Ids of the records asserted to be one thing. Never their content — DEC-012. */
+  readonly members?: readonly string[];
+  /** Merge-only. The member reads redirect to. */
+  readonly canonical?: string;
   [k: string]: Json | undefined;
 }
 
@@ -68,4 +72,6 @@ export interface RecordMetaInput {
   readonly cascadedFrom?: string;
   readonly scope?: 'this-store-only';
   readonly contentDigest?: string;
+  readonly members?: readonly string[];
+  readonly canonical?: string;
 }

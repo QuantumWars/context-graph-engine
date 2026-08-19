@@ -182,6 +182,59 @@ server.registerTool('find', {
   } catch (e) { return fail(e); }
 });
 
+server.registerTool('suggest', {
+  title: 'Find records that look like the same thing',
+  description:
+    'Propose groups of records that may be duplicates of one another. This is a SUGGESTION and ' +
+    'writes nothing — no record is created, changed or merged. Similarity is not transitive, so ' +
+    'each group reports the weakest link holding it together: a group whose weakest link is 0.42 ' +
+    'is a much weaker claim than one at 0.95. Read the weakest link before accepting a group of ' +
+    'more than two. Confirm a group with the merge tool.',
+  inputSchema: {
+    minScore: z.number().min(0).max(1).default(0.6)
+      .describe('the pairwise score below which two records are not considered the same'),
+  },
+}, async ({ minScore }) => {
+  try {
+    const s = await Store.open(paths());
+    const proposals = s.suggest(minScore);
+    return ok({
+      proposals: proposals.map((p) => ({
+        members: p.members,
+        weakestLink: p.weakestLink,
+        confirmWith: { tool: 'merge', members: p.members, canonical: p.members[0] },
+      })),
+      wroteNothing: true,
+      note: 'Suggestions only. Nothing was written. Similarity is not transitive — check weakestLink.',
+    });
+  } catch (e) { return fail(e); }
+});
+
+server.registerTool('merge', {
+  title: 'Assert that several records are one thing',
+  description:
+    'Record that these records all name the same thing, and that reads for any of them should ' +
+    'answer from the canonical one. Nothing is rewritten: every member keeps its own content and ' +
+    'digest, and the merge is a new record in the chain. A read that was redirected always names ' +
+    'the merge that redirected it. To undo, retract the merge record — there is no un-merge. ' +
+    'Merging is never automatic; you are asserting this identity, so only do so when it is true.',
+  inputSchema: {
+    members: z.array(z.string().min(1)).min(2).describe('at least two record ids'),
+    canonical: z.string().min(1).describe('which member the others resolve to. Must be one of members.'),
+    reason: z.string().optional().describe('why these are one thing'),
+  },
+}, async ({ members, canonical, reason }) => {
+  try {
+    const s = await Store.open(paths());
+    const r = await s.merge(members, canonical, reason ?? null);
+    return ok({
+      merge: r.id, members, canonical, seq: r.seq,
+      undoWith: { tool: 'retract', id: r.id },
+      note: 'Nothing was rewritten. Reads for the other members now answer from the canonical.',
+    });
+  } catch (e) { return fail(e); }
+});
+
 server.registerTool('verify', {
   title: 'Verify the chain',
   description:
