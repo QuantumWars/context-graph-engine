@@ -110,7 +110,14 @@ document scrolls out of context.
    reporting all-clear — none is evidence until you have seen it produce the other answer. This
    build got this wrong **nine times**, and every catch came from having written the prediction
    down first.
-2. **Never write output you have not run.** Not a summary, not an example, not "it would print".
+2. **Never write output you have not run, and never write an example that could be mistaken for a
+   record.** Not a summary, not "it would print". Both halves are the same failure — text that
+   looks like it came from somewhere and did not. The second half was added on 2026-08-19 after an
+   invented placeholder in a how-to guide (`d-postgres`, in a code block showing CLI syntax) was
+   read as a real decision, and a decision record was nearly written for an incident that never
+   happened, with the operator cited as its source. Mark a fictional example **at the point of
+   use**: a plausible placeholder is indistinguishable from a real record the moment it leaves the
+   paragraph that invented it.
 3. **A fixture must be shown to change something.** Assert the pre-state before the post-state, or
    the edit may be a no-op — one tamper test "passed" against an edit that set a value to what it
    already was.

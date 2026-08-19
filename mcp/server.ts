@@ -24,6 +24,7 @@ import { resolveWorkspace, storePaths, WorkspaceError } from '../src/store/paths
 import { readLog } from '../src/store/log';
 import { retrieve, type Doc, type Link } from '../src/retrieval/channels';
 import { assertCausalEdgeType } from '../src/decision/causal';
+import { chainPath } from '../src/decision/path';
 
 const ISO = z.string().describe('ISO-8601 instant with an explicit offset, or a YYYY-MM-DD date');
 
@@ -153,7 +154,7 @@ server.registerTool('why', {
     const s = await Store.open(paths());
     const chains = s.why(id, direction, depth);
     return ok(chains.map((c) => ({
-      path: c.hops.map((h) => h.from).concat(c.hops[c.hops.length - 1]?.to ?? []),
+      path: chainPath(c.hops, direction),
       hops: c.hopCount, band: c.distanceBand,
       productConfidence: c.productConfidence, weakestConfidence: c.weakestConfidence,
       weakestLink: c.weakestLink,

@@ -30304,6 +30304,13 @@ function assertCausalEdgeType(raw) {
   return found;
 }
 
+// src/decision/path.ts
+function chainPath(hops, direction) {
+  if (hops.length === 0)
+    return [];
+  return direction === "downstream" ? [hops[0].from, ...hops.map((h) => h.to)] : [hops[0].to, ...hops.map((h) => h.from)];
+}
+
 // mcp/server.ts
 var ISO = exports_external.string().describe("ISO-8601 instant with an explicit offset, or a YYYY-MM-DD date");
 function paths() {
@@ -30426,7 +30433,7 @@ server.registerTool("why", {
     const s = await Store.open(paths());
     const chains = s.why(id, direction, depth);
     return ok(chains.map((c) => ({
-      path: c.hops.map((h) => h.from).concat(c.hops[c.hops.length - 1]?.to ?? []),
+      path: chainPath(c.hops, direction),
       hops: c.hopCount,
       band: c.distanceBand,
       productConfidence: c.productConfidence,

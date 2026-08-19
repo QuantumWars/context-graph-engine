@@ -16,6 +16,7 @@ import { Store, StoreError } from './store/store';
 import { readLog } from './store/log';
 import { retrieve, type Doc, type Link } from './retrieval/channels';
 import { assertCausalEdgeType } from './decision/causal';
+import { chainPath } from './decision/path';
 
 const B = '\x1b[1m', D = '\x1b[2m', G = '\x1b[32m', R = '\x1b[31m', Y = '\x1b[33m', O = '\x1b[0m';
 
@@ -140,8 +141,7 @@ async function main(): Promise<number> {
       const reports = store.why(id, dir, Number(str('depth') ?? '5'));
       if (reports.length === 0) { console.log(`${D}no causal chains ${dir} of ${id}${O}`); return 0; }
       for (const r of reports) {
-        const path = r.hops.map((h) => h.from).concat(r.hops[r.hops.length - 1]!.to);
-        console.log(`\n${B}${(dir === 'upstream' ? path.reverse() : path).join(' → ')}${O}`);
+        console.log(`\n${B}${chainPath(r.hops, dir).join(' → ')}${O}`);
         console.log(`  hops ${r.hopCount}  band ${r.distanceBand}`);
         console.log(`  product  ${r.productConfidence.toFixed(3)}  ${D}assumes independence — a lower bound${O}`);
         console.log(`  weakest  ${r.weakestConfidence.toFixed(3)}  ${D}assumption-free${O}`);
