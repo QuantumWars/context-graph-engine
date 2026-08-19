@@ -43,7 +43,7 @@ src/retrieval/rrf.ts       Algorithm 4 — Reciprocal Rank Fusion
 src/decision/causal.ts     Algorithm 5 — decision node, causal chain
 src/resolve/               Algorithm 6 — blocking, similarity, clustering
 src/store/                 the append-only log and its rebuilt views
-src/cli.ts                 the nine-command CLI
+src/cli.ts                 the eleven-command CLI
 mcp/                       the MCP surface — the ONLY place with a dependency (DEC-011)
 eval/                      labelled sets, metrics, the sweep
 test/                      one .test.ts per module

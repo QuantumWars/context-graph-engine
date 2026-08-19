@@ -6,9 +6,13 @@ you should not have to ask anyone what happened.
 
 ## Status
 
-**Phases 0–5 closed.** Phase 5 reopened the build for the item the post-mortem named as the
+**Phases 0–8 closed.** Phase 5 reopened the build for the item the post-mortem named as the
 largest gap, and the harness rejected a shipped constant on its first run. Post-mortem: `POSTMORTEM.md`. The ten standing rules moved into
 `engine/CLAUDE.md`.
+
+Phase 8 wired entity resolution into the store, which was the last component with no caller.
+Both defects it found were found by **running the CLI**, not by the suite — including one in the
+error message of the guard the phase existed to build.
 
 
 | Phase | Stage | What | Status |
@@ -21,6 +25,7 @@ largest gap, and the harness rejected a shipped constant on its first run. Post-
 | 5 | — | The evaluation harness | **closed 2026-08-19 — 241 tests; LEXICAL_FLOOR recalibrated 0.01 → 0.4** |
 | 6 | — | MCP surface, plugin packaging, first real corpus | **closed 2026-08-19 — 252 tests; RRF question answered on real data** |
 | 7 | — | Entity resolution: blocking, similarity, clustering | **closed 2026-08-19 — 290 tests; the recon's take list is complete** |
+| 8 | — | Wire resolution into the store: suggest, merge, resolve reads | **closed 2026-08-20 — 313 tests; purging a merge canonical now refused** |
 
 ## The method
 
@@ -48,6 +53,7 @@ Those are `DEC-002` through `DEC-005` and they were made in Phase 0.
 | `DEC-009` | Keep both RRF implementations; they answer different questions. A third is a defect |
 | `DEC-010` | Vendor the file lock — a standalone repo has no sibling to import from |
 | `DEC-011` | Third-party code lives only in `mcp/`; `src/` stays dependency-free |
+| `DEC-012` | A merge is an appended assertion about identity; a cluster is derived and never stored |
 
 ## Phase 1 — the five algorithms
 
