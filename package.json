@@ -7,10 +7,14 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "check": "bun run typecheck && bun test"
+    "check": "bun run typecheck && bun test",
+    "engine": "bun src/cli.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5"
+  },
+  "bin": {
+    "graph-engine": "./src/cli.ts"
   }
 }

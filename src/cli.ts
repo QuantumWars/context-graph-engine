@@ -1,0 +1,205 @@
+#!/usr/bin/env bun
+/**
+ * The CLI — the one runnable thing this phase can be pointed at.
+ *
+ * `build-phase-machine` defines a phase as "the largest unit of work that ends with one runnable
+ * thing you can point at". Not "the store layer" — `engine record` runs and a decision survives a
+ * restart.
+ *
+ * Exit codes: 0 success · 1 the operation failed · 2 the invocation was wrong.
+ * A broken store reports what is wrong; it never shows a stack trace, because a stack trace tells
+ * a user nothing they can act on.
+ */
+
+import { resolveWorkspace, storePaths, WorkspaceError } from './store/paths';
+import { Store, StoreError } from './store/store';
+import { readLog } from './store/log';
+import { retrieve, type Doc, type Link } from './retrieval/channels';
+import { assertCausalEdgeType } from './decision/causal';
+
+const B = '\x1b[1m', D = '\x1b[2m', G = '\x1b[32m', R = '\x1b[31m', Y = '\x1b[33m', O = '\x1b[0m';
+
+interface Args {
+  readonly cmd: string;
+  readonly positional: readonly string[];
+  readonly flags: Readonly<Record<string, string | true>>;
+}
+
+function parse(argv: readonly string[]): Args {
+  const positional: string[] = [];
+  const flags: Record<string, string | true> = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i] as string;
+    if (a.startsWith('--')) {
+      const key = a.slice(2);
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith('--')) { flags[key] = next; i++; }
+      else flags[key] = true;
+    } else positional.push(a);
+  }
+  return { cmd: positional[0] ?? '', positional: positional.slice(1), flags };
+}
+
+const USAGE = `${B}context graph engine${O}
+
+  ${B}engine record${O} <id> --text <s> [--kind node|decision] [--valid-from <iso>] [--valid-until <iso>]
+  ${B}engine link${O}   <source> <target> --type CAUSED|INFLUENCED|PRECEDENT_FOR [--weight 0..1]
+  ${B}engine retract${O} <id> [--reason <s>]      close its window; the content stays answerable
+  ${B}engine purge${O}   <id> [--reason <s>]      remove the content; leave a tombstone
+  ${B}engine at${O}      <iso> [--as-of <iso>]    point-in-time snapshot (two time axes)
+  ${B}engine why${O}     <id> [--direction upstream|downstream] [--depth 5]
+  ${B}engine find${O}    <query...>               lexical + structural, fused
+  ${B}engine verify${O}                           check the whole chain
+  ${B}engine log${O}      [--raw]                 list the records
+
+${D}Store location comes from --workspace, then GRAPH_ENGINE_WORKSPACE, then CLAUDE_PROJECT_DIR.
+There is deliberately no current-directory fallback — see DEC-002.${O}
+`;
+
+async function openStore(flags: Args['flags']): Promise<Store> {
+  const explicit = typeof flags['workspace'] === 'string' ? flags['workspace'] : undefined;
+  const env = explicit !== undefined ? { GRAPH_ENGINE_WORKSPACE: explicit } : process.env;
+  const ws = resolveWorkspace({ env, startDir: process.cwd() });
+  return Store.open(storePaths(ws));
+}
+
+function need(args: Args, i: number, what: string): string {
+  const v = args.positional[i];
+  if (v === undefined) { console.error(`${R}error${O}: missing <${what}>\n\n${USAGE}`); process.exit(2); }
+  return v;
+}
+
+async function main(): Promise<number> {
+  const args = parse(process.argv.slice(2));
+
+  if (args.cmd === '' || args.cmd === 'help' || args.flags['help'] === true) {
+    console.log(USAGE);
+    return 0;
+  }
+
+  const known = ['record', 'link', 'retract', 'purge', 'at', 'why', 'find', 'verify', 'log'];
+  if (!known.includes(args.cmd)) {
+    console.error(`${R}error${O}: unknown command ${JSON.stringify(args.cmd)}\n${D}known: ${known.join(', ')}${O}\n`);
+    return 2;
+  }
+
+  const store = await openStore(args.flags);
+  const str = (k: string): string | undefined => (typeof args.flags[k] === 'string' ? args.flags[k] as string : undefined);
+
+  switch (args.cmd) {
+    case 'record': {
+      const id = need(args, 0, 'id');
+      const text = str('text');
+      if (text === undefined) { console.error(`${R}error${O}: --text is required`); return 2; }
+      const kind = str('kind') === 'decision' ? 'decision' as const : 'node' as const;
+      const rec = await store.append({
+        kind, id, content: { text },
+        validFrom: str('valid-from') ?? null, validUntil: str('valid-until') ?? null,
+      });
+      console.log(`${G}recorded${O} ${kind} ${B}${id}${O}  seq=${rec.seq}  digest=${rec.digest.slice(0, 12)}…`);
+      return 0;
+    }
+    case 'link': {
+      const source = need(args, 0, 'source'), target = need(args, 1, 'target');
+      const type = assertCausalEdgeType(str('type') ?? 'INFLUENCED');
+      const weight = Number(str('weight') ?? '1');
+      const id = `${source}->${target}:${type}`;
+      const rec = await store.append({ kind: 'edge', id, content: { note: str('note') ?? '' }, source, target, edgeType: type, weight });
+      console.log(`${G}linked${O} ${source} --${type}(${weight})--> ${target}  seq=${rec.seq}`);
+      return 0;
+    }
+    case 'retract': {
+      const id = need(args, 0, 'id');
+      const r = await store.retract(id, str('reason') ?? null);
+      console.log(`${Y}retracted${O} ${B}${id}${O} at ${r.meta.recordedAt}  ${D}content kept; window closed${O}`);
+      return 0;
+    }
+    case 'purge': {
+      const id = need(args, 0, 'id');
+      const t = await store.purge(id, str('reason') ?? null);
+      console.log(`${Y}purged${O} ${B}${id}${O} at ${t.meta.recordedAt}`);
+      console.log(`${D}  tombstone scope: ${String(t.meta.scope)} — this store only. Copies elsewhere are not reached.${O}`);
+      return 0;
+    }
+    case 'at': {
+      const when = need(args, 0, 'iso-timestamp');
+      const asOf = str('as-of');
+      const snap = asOf === undefined ? store.stateAt(when) : store.stateAt(when, asOf);
+      console.log(`${B}valid at${O} ${snap.validAt}${asOf ? `  ${B}as the store stood at${O} ${asOf}` : ''}`);
+      console.log(`  nodes: ${snap.nodes.map((n) => n.id).join(', ') || D + '(none)' + O}`);
+      console.log(`  edges: ${snap.edges.map((e) => e.id).join(', ') || D + '(none)' + O}`);
+      if (snap.rejected.length > 0) {
+        console.log(`  ${Y}rejected${O}: ${snap.rejected.map((r) => `${r.id}.${r.field} (${r.reason})`).join(', ')}`);
+      }
+      return 0;
+    }
+    case 'why': {
+      const id = need(args, 0, 'id');
+      const dir = str('direction') === 'downstream' ? 'downstream' as const : 'upstream' as const;
+      const reports = store.why(id, dir, Number(str('depth') ?? '5'));
+      if (reports.length === 0) { console.log(`${D}no causal chains ${dir} of ${id}${O}`); return 0; }
+      for (const r of reports) {
+        const path = r.hops.map((h) => h.from).concat(r.hops[r.hops.length - 1]!.to);
+        console.log(`\n${B}${(dir === 'upstream' ? path.reverse() : path).join(' → ')}${O}`);
+        console.log(`  hops ${r.hopCount}  band ${r.distanceBand}`);
+        console.log(`  product  ${r.productConfidence.toFixed(3)}  ${D}assumes independence — a lower bound${O}`);
+        console.log(`  weakest  ${r.weakestConfidence.toFixed(3)}  ${D}assumption-free${O}`);
+        console.log(`  ${Y}weakest link${O}: ${r.weakestLink!.from} --${r.weakestLink!.type}(${r.weakestLink!.weight})--> ${r.weakestLink!.to}`);
+      }
+      return 0;
+    }
+    case 'find': {
+      const query = args.positional.join(' ');
+      if (query === '') { console.error(`${R}error${O}: give a query`); return 2; }
+      const docs: Doc[] = store.searchable().map((d) => ({ id: d.id, text: d.text }));
+      const links: Link[] = store.listEdges().map((e) => ({ source: String(e.meta.source), target: String(e.meta.target) }));
+      const { decision, items } = retrieve(docs, links, query);
+
+      console.log(`${B}${decision.outcome}${O}  ${D}query ${decision.queryHash} (${decision.queryChars} chars)${O}`);
+      for (const c of decision.channels) {
+        const top = c.topScore === null ? '—' : c.topScore.toFixed(3);
+        const m = c.margin === null ? '—' : (c.margin >= 0 ? '+' : '') + c.margin.toFixed(3);
+        console.log(`  ${c.channel.padEnd(11)} considered=${String(c.considered).padEnd(3)} top=${top.padEnd(7)} floor=${String(c.floor).padEnd(6)} margin=${m}`);
+      }
+      if (decision.reason !== null) console.log(`  ${Y}reason${O}: ${decision.reason}`);
+      for (const i of items) {
+        console.log(`  ${G}→${O} ${i.id}  ${i.fusedScore.toFixed(5)}  ${D}${i.contributions.map((c) => `${c.channel}#${c.rank}`).join(' ')}${O}`);
+      }
+      return 0;
+    }
+    case 'verify': {
+      const r = store.verify();
+      if (r.valid) { console.log(`${G}✓${O} chain verifies — ${r.total} record(s), ${r.purged} purged, 0 problems`); return 0; }
+      console.log(`${R}✗${O} chain INVALID — ${r.problems.length} problem(s)`);
+      for (const p of r.problems) console.log(`    ${R}${p.reason}${O} at seq ${p.seq} (${p.id})`);
+      return 1;
+    }
+    case 'log': {
+      const raw = readLog(storePaths(resolveWorkspace({
+        env: typeof args.flags['workspace'] === 'string' ? { GRAPH_ENGINE_WORKSPACE: args.flags['workspace'] } : process.env,
+        startDir: process.cwd(),
+      })));
+      if (args.flags['raw'] === true) { for (const r of raw) console.log(JSON.stringify(r)); return 0; }
+      console.log(`${D}seq  kind         id                        digest        content${O}`);
+      for (const r of raw) {
+        const c = r.content === null ? `${Y}⌀ purged${O}` : JSON.stringify(r.content).slice(0, 38);
+        console.log(`${String(r.seq).padEnd(4)} ${r.kind.padEnd(12)} ${r.id.slice(0, 25).padEnd(25)} ${r.digest.slice(0, 12)}… ${c}`);
+      }
+      return 0;
+    }
+    default:
+      return 2;
+  }
+}
+
+main()
+  .then((code) => process.exit(code))
+  .catch((e: unknown) => {
+    // A user gets a reason, not a stack trace. The reason codes are the stable part.
+    if (e instanceof StoreError || e instanceof WorkspaceError) {
+      console.error(`${R}error${O}: ${e.message}`);
+      process.exit(1);
+    }
+    console.error(`${R}error${O}: ${(e as Error).message}`);
+    process.exit(1);
+  });
