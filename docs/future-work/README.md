@@ -25,13 +25,31 @@ Listed so they are not lost. Each needs its own page before it is worked on.
   correct abstentions from 1 of 3 to 3 of 3. Full record: `docs/constants-ledger.md`.
   **Still open:** the labels were written by the author of the code, which is the largest
   uncertainty in every number it produced.
-- **The engine is not doing rank fusion, and `RRF_K` therefore cannot be calibrated.** Phase 5
-  measured **zero cross-channel overlap across all 19 queries** — `structuralChannel` excludes
-  every lexical seed by construction, so no document is ever in both channels, and RRF's score
-  reduces to `1/(k+rank)` whose ordering is independent of `k`. What the engine does is
-  rank-interleaving of two disjoint lists. A variant allowing overlap was measured and scored
-  identically, so it was not adopted. Either rename the mechanism to what it is, or change the
-  channels so they can overlap — and today the measurement says the second buys nothing.
+- **The engine is not doing rank fusion — decide whether to rename it or change it.** *Deferred
+  deliberately, 2026-08-19, not forgotten.* Phase 5 measured **zero cross-channel overlap across
+  all 19 queries**: `structuralChannel` excludes every lexical seed by construction, so no
+  document is ever in both channels, RRF's score reduces to `1/(k+rank)`, and its ordering is
+  independent of `k`. What the engine does is rank-interleaving of two disjoint lists.
+
+  **Two options, and the measurement supports neither urgently:**
+
+  1. **Rename to what it is.** `rrf.ts` and `RRF_K` overstate the mechanism. Honest, roughly an
+     afternoon, and purely cosmetic to behaviour — no output changes.
+  2. **Make the channels able to overlap**, so agreement can be rewarded. Measured: it does create
+     overlap (18 at the calibrated floor) and scores **0.819 — identical**.
+
+  **Why it is deferred rather than done:** neither changes a single retrieved result today, and
+  the corpus that produced the finding is 34 records with 11 edges. Whether option 2 pays off on a
+  denser, real graph is unknown, and renaming first would have to be undone if it does. Real usage
+  settles which — so this waits behind it.
+
+  **What would settle it:** run the sweep against a real store with real graph density. If `RRF_K`
+  still cannot discriminate there, take option 1. If it can, option 2 was right all along and the
+  name was correct.
+
+  There is **no prior art to copy**: `docs/research/06-how-semantica-uses-rrf.md` establishes that
+  the system this was ported from never faced the question, because its fusion is unreachable from
+  any shipped entry point and its "channels" are corpora rather than methods.
 - **A labelled set of causal questions.** The distance bands (1/3/6) are still placeholders and
   need "is a three-hop chain still useful evidence?" labels, which `eval/dataset.ts` does not
   contain. The sweep infrastructure already exists to consume such a set.
