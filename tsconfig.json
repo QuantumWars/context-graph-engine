@@ -22,7 +22,9 @@
   "include": [
     "src",
     "test",
+    "eval",
     "demo.ts",
-    "scripts"
+    "scripts",
+    "mcp"
   ]
 }

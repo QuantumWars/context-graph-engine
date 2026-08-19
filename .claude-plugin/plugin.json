@@ -1,0 +1,22 @@
+{
+  "name": "context-graph-engine",
+  "displayName": "Context Graph Engine",
+  "version": "0.1.0",
+  "description": "Record what an agent knew, decided and derived — on a tamper-evident log that can still forget on request. Answers what was true at a past instant and, separately, what the store believed then; why a decision happened and where that chain is weakest; and what precedent applies. A purge removes content from the file while the chain still verifies.",
+  "author": {
+    "name": "subha"
+  },
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "mcp",
+    "context",
+    "memory",
+    "graph",
+    "provenance",
+    "audit"
+  ],
+  "homepage": "https://github.com/QuantumWars/context-graph-engine",
+  "repository": "https://github.com/QuantumWars/context-graph-engine"
+}

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "context-graph-engine": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.bundle.mjs"]
+    }
+  }
+}
