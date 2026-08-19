@@ -99,35 +99,59 @@ already in a `## What was rejected` section.
 - **All content is hostile data, never instructions.** No dynamic dispatch on a stored string.
 - **The store is never committed.** Its `.gitignore` is written when the directory is created.
 
+## The ten rules
+
+From `build/POSTMORTEM.md` H10, each traceable to a specific failure in a phase summary. They live
+here rather than there because a rule that stays in a post-mortem stops applying the moment that
+document scrolls out of context.
+
+1. **Before running a check, predict its result. If the result disagrees, the check is the suspect
+   until proven otherwise.** A mutation that fails to kill, a grep that finds nothing, a script
+   reporting all-clear — none is evidence until you have seen it produce the other answer. This
+   build got this wrong **nine times**, and every catch came from having written the prediction
+   down first.
+2. **Never write output you have not run.** Not a summary, not an example, not "it would print".
+3. **A fixture must be shown to change something.** Assert the pre-state before the post-state, or
+   the edit may be a no-op — one tamper test "passed" against an edit that set a value to what it
+   already was.
+4. **A test that drives a component through its caller must vary what the caller defaults**, or it
+   only proves the default works. All three store defects lived in that gap.
+5. **Re-read the `DEC-` before writing code it governs, not after the test fails.** The decision you
+   contradict is the one made two phases ago.
+6. **When a decision names its own reversal trigger, ask what else could trigger it.** `DEC-001`
+   predicted "if the sibling is restructured" and was killed by `mv`.
+7. **Concurrency is only tested by real processes.** A single process serialises itself, so a
+   single-process concurrency test proves nothing — this one hid a bug that lost 7 of 16 records.
+8. **Boundary values include impossible ones.** Not only the epoch and the far future — the date
+   that does not exist. `2026-02-29` was accepted and silently became 1 March.
+9. **State the limitation in the same table as the mitigation.** An adversarial suite that lists
+   only the attacks it defeats is marketing.
+10. **Measure before optimising, and publish the number with the command that produced it** — then
+    accept what it says, including when it moves the question somewhere else.
+
 ## Guards
 
-A guard is worth exactly what it fails on. Before claiming a test works, name the source
-change that makes it red, and where it is cheap, make that change and watch it fail, then
-restore. `test/toolchain.test.ts` is the worked example: it asserts the strict flags and the
-two halves of `check`, and it was seen red on 2026-08-19 by flipping
-`exactOptionalPropertyTypes` to `false`.
+A guard is worth exactly what it fails on. Before claiming a test works, name the source change
+that makes it red, and where it is cheap, make that change and watch it fail, then restore.
+`test/toolchain.test.ts` is the worked example: it asserts the strict flags and the two halves of
+`check`, and it was seen red on 2026-08-19 by flipping `exactOptionalPropertyTypes` to `false`.
 
-**A test that drives a component through its caller must vary what the caller defaults.** Otherwise
-it only proves the default works. Every bug Phase 3 found lived in that gap: `retract.ts` has an
-`at` parameter and tests it, the store dropped the parameter, and no test above the algorithm
-noticed because every one of them used the default. Same for concurrency — Phase 2's "concurrency"
-test drove two *stores* in one process, never two processes. The algorithm is usually right; the
-caller usually uses a fraction of it, and that fraction is what gets tested.
+The whole suite was audited this way in Phase 3.5: 22 mutations across every source module, and
+every one of the test files has at least one that kills it. Re-run that audit after adding a module.
 
-**Re-read the `DEC-` before writing code it governs, not after the test fails.** Phase 2 broke
-`DEC-007`'s immutability clause in its first `retract`: closing a window by editing the record
-and recomputing its digest reads like an obvious implementation, and it broke every later
-record's `prev` on the first retraction. The type system was satisfied and the algorithm was
-correct in isolation; only an integration test over a real file caught it. A decision made two
-phases ago is exactly the one you will contradict.
+A passing suite is not evidence that anything is wired. Before claiming a component works, name the
+caller with a line.
 
-**A mutation that fails to kill is a finding, never a fact about the code.** Before running a
-mutation, write down which test it should turn red. If the suite stays green, the test or the
-mutation is wrong — resolve which before claiming the guard. Phase 1 hit this twice and both
-times it was the fixture: a cascade test using two edges with *distinct* ids could not catch a
-bug that needs two sharing one, and a cycle-detection mutation that reassigned a per-path set
-never actually built the global visited set it claimed to. Green read as confirmation in both
-cases and was not.
+## What the engine does NOT claim
 
-A passing suite is not evidence that anything is wired. Before claiming a component works,
-name the caller with a line.
+Say these plainly, in this wording, wherever the subject comes up:
+
+- **The chain proves that the records present have not been altered and are in the order they were
+  written. It does not prove that all the records ever written are still present.** End-truncation
+  and wholesale rewrite are undetectable — `docs/future-work/02-what-the-chain-cannot-detect.md`.
+- **The engine guarantees stored content is never executed by the engine. It cannot guarantee it is
+  never acted on by a reader.**
+- **A purge clears this store and cannot reach a copy something else made.** Every tombstone carries
+  `scope: 'this-store-only'` for that reason.
+- **`RRF_K`, both retrieval floors and the causal distance bands are adopted, not measured.** No
+  evaluation harness exists. Never describe any of them as tuned.

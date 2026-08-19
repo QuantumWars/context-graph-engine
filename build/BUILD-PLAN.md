@@ -6,13 +6,17 @@ you should not have to ask anyone what happened.
 
 ## Status
 
+**The build is closed.** Post-mortem: `POSTMORTEM.md`. The ten standing rules moved into
+`engine/CLAUDE.md`.
+
+
 | Phase | Stage | What | Status |
 |---|---|---|---|
 | 0 | — | Feasibility, skeleton, and the decisions that cannot wait | **closed 2026-08-19 — GO** |
 | 1 | 1 | The five algorithms, minimal code, algorithm tests only | **closed 2026-08-19 — 107 tests, every guard seen red** |
 | 2 | 2 | Interlink by real interconnectivity; one store; the CLI | **closed 2026-08-19 — 153 tests, CLI shipped** |
 | 3 | 3 | Real-world, adversarial and ugly-input test suites | **closed 2026-08-19 — 190 tests, 3 real bugs found** |
-| 4 | 4 | Security pass and the §T shipped-artifact check | **next** |
+| 4 | 4 | Security pass and the §T shipped-artifact check | **closed 2026-08-19 — 210 tests, 16 threats, clean-env §T green** |
 
 ## The method
 
@@ -38,6 +42,7 @@ Those are `DEC-002` through `DEC-005` and they were made in Phase 0.
 | `DEC-007` | Hash a salted **commitment** to the content, so purge and an unbroken chain coexist |
 | `DEC-008` | Carry both time axes: valid time on the record, transaction time from the log |
 | `DEC-009` | Keep both RRF implementations; they answer different questions. A third is a defect |
+| `DEC-010` | Vendor the file lock — a standalone repo has no sibling to import from |
 
 ## Phase 1 — the five algorithms
 
