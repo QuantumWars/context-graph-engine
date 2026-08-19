@@ -107,6 +107,13 @@ restore. `test/toolchain.test.ts` is the worked example: it asserts the strict f
 two halves of `check`, and it was seen red on 2026-08-19 by flipping
 `exactOptionalPropertyTypes` to `false`.
 
+**A test that drives a component through its caller must vary what the caller defaults.** Otherwise
+it only proves the default works. Every bug Phase 3 found lived in that gap: `retract.ts` has an
+`at` parameter and tests it, the store dropped the parameter, and no test above the algorithm
+noticed because every one of them used the default. Same for concurrency — Phase 2's "concurrency"
+test drove two *stores* in one process, never two processes. The algorithm is usually right; the
+caller usually uses a fraction of it, and that fraction is what gets tested.
+
 **Re-read the `DEC-` before writing code it governs, not after the test fails.** Phase 2 broke
 `DEC-007`'s immutability clause in its first `retract`: closing a window by editing the record
 and recomputing its digest reads like an obvious implementation, and it broke every later

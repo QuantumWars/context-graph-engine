@@ -11,8 +11,8 @@ you should not have to ask anyone what happened.
 | 0 | — | Feasibility, skeleton, and the decisions that cannot wait | **closed 2026-08-19 — GO** |
 | 1 | 1 | The five algorithms, minimal code, algorithm tests only | **closed 2026-08-19 — 107 tests, every guard seen red** |
 | 2 | 2 | Interlink by real interconnectivity; one store; the CLI | **closed 2026-08-19 — 153 tests, CLI shipped** |
-| 3 | 3 | Real-world, adversarial and ugly-input test suites | **next** |
-| 4 | 4 | Security pass and the §T shipped-artifact check | not started |
+| 3 | 3 | Real-world, adversarial and ugly-input test suites | **closed 2026-08-19 — 190 tests, 3 real bugs found** |
+| 4 | 4 | Security pass and the §T shipped-artifact check | **next** |
 
 ## The method
 
