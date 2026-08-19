@@ -25,31 +25,38 @@ Listed so they are not lost. Each needs its own page before it is worked on.
   correct abstentions from 1 of 3 to 3 of 3. Full record: `docs/constants-ledger.md`.
   **Still open:** the labels were written by the author of the code, which is the largest
   uncertainty in every number it produced.
-- **The engine is not doing rank fusion — decide whether to rename it or change it.** *Deferred
-  deliberately, 2026-08-19, not forgotten.* Phase 5 measured **zero cross-channel overlap across
-  all 19 queries**: `structuralChannel` excludes every lexical seed by construction, so no
-  document is ever in both channels, RRF's score reduces to `1/(k+rank)`, and its ordering is
-  independent of `k`. What the engine does is rank-interleaving of two disjoint lists.
+- **The engine is not doing rank fusion — the trigger fired, and the answer is RENAME.**
+  *Measured 2026-08-19 on real data. Not executed yet.*
 
-  **Two options, and the measurement supports neither urgently:**
+  Phase 5 deferred this with a written trigger: *run the sweep against a real store with real graph
+  density; if `RRF_K` still cannot discriminate there, rename.* Phase 6 built that store — this
+  repository's own build history, **25 records and 52 edges**, roughly five times the edge density
+  of the eval corpus — and measured it:
 
-  1. **Rename to what it is.** `rrf.ts` and `RRF_K` overstate the mechanism. Honest, roughly an
-     afternoon, and purely cosmetic to behaviour — no output changes.
-  2. **Make the channels able to overlap**, so agreement can be rewarded. Measured: it does create
-     overlap (18 at the calibrated floor) and scores **0.819 — identical**.
+  ```
+  overlap in the pair that is FUSED      : 0     (8 real queries)
+  distinct orderings across k=1,5,60,300 : 1     (per query)
+  ```
 
-  **Why it is deferred rather than done:** neither changes a single retrieved result today, and
-  the corpus that produced the finding is 34 records with 11 edges. Whether option 2 pays off on a
-  denser, real graph is unknown, and renaming first would have to be undone if it does. Real usage
-  settles which — so this waits behind it.
+  **Still zero.** The disjointness is structural, not an artefact of a thin corpus:
+  `structuralChannel` scores a node only when it is *not* a lexical seed, and `retrieve()` fuses
+  the **floored** lexical list, which is exactly the seed set. The two inputs to `fuse()` cannot
+  intersect by construction at any density.
 
-  **What would settle it:** run the sweep against a real store with real graph density. If `RRF_K`
-  still cannot discriminate there, take option 1. If it can, option 2 was right all along and the
-  name was correct.
+  One correction worth carrying: the *unfiltered* lexical list and the structural list **can**
+  overlap — 14 hits across those same 8 queries — because a document scoring below `LEXICAL_FLOOR`
+  is not a seed and may therefore score structurally. A first probe measured that pair and briefly
+  suggested the finding had reversed. It had not: that pair is never fused. Phase 5's conclusion
+  stands, now with a sharper statement of *why*.
 
-  There is **no prior art to copy**: `docs/research/06-how-semantica-uses-rrf.md` establishes that
-  the system this was ported from never faced the question, because its fusion is unreachable from
-  any shipped entry point and its "channels" are corpora rather than methods.
+  **So: rename.** `rrf.ts` and `RRF_K` name a mechanism that provably cannot operate here. It is
+  roughly an afternoon and changes no output. Not done in Phase 6 because that phase's job was
+  reachability and real data, and renaming is unrelated to both — but there is no longer an open
+  question behind it, only work.
+
+  The alternative — making the channels able to overlap — was measured in Phase 5 at **0.819,
+  identical**. It remains available and is not indicated.
+
 - **A labelled set of causal questions.** The distance bands (1/3/6) are still placeholders and
   need "is a three-hop chain still useful evidence?" labels, which `eval/dataset.ts` does not
   contain. The sweep infrastructure already exists to consume such a set.
