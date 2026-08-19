@@ -30172,22 +30172,36 @@ function readLog2(paths) {
 
 // src/retrieval/channels.ts
 import { createHash as createHash2 } from "node:crypto";
-var LEXICAL_FLOOR = 0.4;
+var LEXICAL_FLOOR = 0.3;
 var STRUCTURAL_FLOOR = 1;
 function tokenise(s) {
   return s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1);
 }
 function lexicalChannel(docs, query) {
   const q = new Set(tokenise(query));
-  const results = docs.map((d) => {
-    const tokens = tokenise(d.text);
-    if (tokens.length === 0)
+  if (q.size === 0 || docs.length === 0)
+    return { name: "lexical", results: [] };
+  const df = new Map;
+  const tokenised = docs.map((d) => ({ id: d.id, tokens: new Set(tokenise(d.text)), length: tokenise(d.text).length }));
+  for (const t of q) {
+    let n = 0;
+    for (const d of tokenised)
+      if (d.tokens.has(t))
+        n++;
+    df.set(t, n);
+  }
+  const N = docs.length;
+  const maxIdf = Math.log(1 + N);
+  const results = tokenised.map((d) => {
+    if (d.length === 0)
       return { id: d.id, score: 0 };
-    let hits = 0;
-    for (const t of tokens)
-      if (q.has(t))
-        hits++;
-    return { id: d.id, score: hits / Math.sqrt(tokens.length) };
+    let sum = 0;
+    for (const t of q) {
+      if (!d.tokens.has(t))
+        continue;
+      sum += Math.log(1 + N / (df.get(t) ?? N)) / maxIdf;
+    }
+    return { id: d.id, score: sum / Math.sqrt(d.length) };
   }).filter((r) => r.score > 0).sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : 1));
   return { name: "lexical", results };
 }

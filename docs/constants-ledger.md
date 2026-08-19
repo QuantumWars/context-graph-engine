@@ -19,7 +19,7 @@ lint-constants: PASS — 8 constant(s), every one accounted for
 
 | Constant | Value | Status | Established by |
 |---|---|---|---|
-| `LEXICAL_FLOOR` | **0.4** | **calibrated** | `eval/sweep.ts`, 2026-08-19, 19 labelled queries. Was 0.01. |
+| `LEXICAL_FLOOR` | **0.3** | **calibrated**, 3rd time | `eval/sweep.ts`. Was 0.01 → 0.4 → 1.0 → 0.3; the scoring function changed twice. |
 | `STRUCTURAL_FLOOR` | 1 | **calibrated**, weakly | `eval/sweep.ts` — best of four values; no interior optimum. |
 | `RRF_K` | 60 | **declared placeholder** | Sweep ran it and **could not discriminate** — see below. |
 | `BAND_DIRECT_MAX` | 1 | declared placeholder | Ported from `helpers.py:586-605`; needs a causal-question set. |
@@ -55,6 +55,36 @@ both contain *by*.
 The whole-set effect: correct abstentions went from **1 of 3 to 3 of 3**.
 
 0.4 rather than 0.5 because they score identically and 0.4 sits further from the cliff at 0.6.
+
+## The rule three recalibrations produced
+
+`LEXICAL_FLOOR` has been calibrated three times and the value moved every time — 0.01 → 0.4 → 1.0
+→ 0.3. Only the first move was about the corpus. The other two happened because **the scoring
+function changed**: adding IDF weighting, then normalising it.
+
+> **A floor is calibrated against a scoring function, not against a corpus.** Any change to how a
+> score is computed silently invalidates every threshold downstream of it, and nothing catches that
+> except re-running the sweep.
+
+This is why the sweep is a script rather than a one-off measurement, and why the value carries the
+command that reproduces it rather than only a number.
+
+## What real usage changed, and what it cost
+
+The IDF weighting exists because of one real query. Asked *"why did we vendor the file lock"*
+against a 26-record store of this build's own history, the engine returned ten results with the
+correct answer ranked **ninth** and an unrelated record first. The cause, measured rather than
+guessed: the token `the` appeared in **13 of 26** records and counted exactly as much as `vendor`,
+which appeared in one.
+
+The eval corpus never punished that, because its queries were built from distinctive words — a
+blind spot that only a query someone actually wanted answered could expose. After the fix the same
+question returns three results, all relevant, correct answer at rank 3, wrong answer gone.
+
+Normalising the weight by its own maximum was a second, separate defect found while fixing the
+first: without it the score scale grows with corpus size, so the same query against the same
+document served or abstained depending on how much **unrelated** material sat beside it. Measured:
+`gate` abstained at 3 documents and served at 10. Two tests now guard the invariance.
 
 ## `RRF_K` — measured, and still a placeholder, for a reason worth reading
 

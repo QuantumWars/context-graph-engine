@@ -73,7 +73,7 @@ function table(label: string, shipped: number, rows: readonly SweepRow[]): Sweep
 console.log(`\n${B}Constant sweep${O}  ${D}19 queries, k=10, one constant at a time${O}`);
 
 table('LEXICAL_FLOOR', LEXICAL_FLOOR,
-  sweep('lexicalFloor', [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0]));
+  sweep('lexicalFloor', [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2]));
 
 table('STRUCTURAL_FLOOR', STRUCTURAL_FLOOR,
   sweep('structuralFloor', [1, 2, 3, 4]));

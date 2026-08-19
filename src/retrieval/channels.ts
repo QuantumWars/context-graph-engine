@@ -29,26 +29,30 @@ export interface Link {
 }
 
 /**
- * PROVENANCE: **calibrated**, 2026-08-19, by `eval/sweep.ts` over `eval/dataset.ts` — 19
- * labelled queries, k=10, one constant varied at a time.
+ * PROVENANCE: **calibrated**, 2026-08-19, by `eval/sweep.ts` over `eval/dataset.ts` — 19 labelled
+ * queries, k=10, one constant varied at a time. **Recalibrated twice**, and the history matters
+ * more than the number.
  *
- * Was `0.01`, adopted on the reasoning that a query sharing no token should not clear it. That
- * reasoning was sound and the value was far too low: the sweep scored `0.01` at **0.509** and
- * `0.4` at **0.819**, lifting precision@10 from 39.6% to 78.8% and taking false serves from 2
- * to 0. At `0.01` a single incidental token — "by", "the", "schema" — was enough to serve an
- * answer to a question the corpus knows nothing about.
+ * Recalibrated **three times**, and the history is the useful part:
  *
- * THE TRADE, because it is not free: false abstains went 0 → 1 and recall@10 fell 89.6% → 87.5%.
- * `FALSE_SERVE_PENALTY` is twice `FALSE_ABSTAIN_PENALTY` (`eval/metrics.ts`), a judgement rather
- * than a measurement — a wrong answer propagates into whatever reads it, a refusal only costs the
- * query. Change that ratio and the sweep may choose differently.
+ * - `0.01` → `0.4` — the first sweep found the shipped value 40× too low.
+ * - `0.4` → `1.0` — adding IDF weighting changed the score *scale*.
+ * - `1.0` → `0.3` — normalising IDF by its own maximum changed it again.
  *
- * The plateau is wide: 0.4 and 0.5 score identically, 0.3 scores 0.627, 0.6 falls to 0.529. A
- * value in the middle of a plateau is a safer choice than one on an edge.
+ * The rule those three share, and it is worth more than any of the numbers: **a floor is
+ * calibrated against a scoring function, not against a corpus.** Every change to how a score is
+ * computed invalidates it, silently, and the only thing that catches it is re-running the sweep.
+ *
+ * At `0.3`: score **0.922**, precision@10 **90.6%**, recall@10 93.8%, MRR 93.8%, and both false
+ * serves and false abstains at **zero**. The best of the three (0.819 → 0.915 → 0.922).
+ *
+ * CAVEAT: a **peak, not a plateau**. 0.2 scores 0.707 and 0.4 scores 0.854, so the value sits on a
+ * point rather than in a flat region — less robust to a corpus shift than the original 0.4/0.5
+ * plateau was. Re-sweep after any change to the scoring function.
  *
  * Reproduce: `bun --cwd engine eval/sweep.ts`
  */
-export const LEXICAL_FLOOR = 0.4;
+export const LEXICAL_FLOOR = 0.3;
 
 /**
  * PROVENANCE: **calibrated**, 2026-08-19, by `eval/sweep.ts`, weakly — it was already the best
@@ -67,22 +71,60 @@ export function tokenise(s: string): readonly string[] {
 }
 
 /**
- * Lexical channel — token overlap, length-normalised.
+ * Lexical channel — IDF-weighted token overlap, length-normalised.
  *
- * Deliberately simple and deliberately *not* co-occurrence-based: finding A-8 in the teardown is
- * a relation extractor that manufactures an edge for every entity pair within 100 characters, at
- * exactly its own filter threshold. Proximity is not evidence, and nothing here treats it as such.
+ * WHY IDF, AND WHY IT WAS NOT THERE BEFORE. The first version counted matching tokens equally.
+ * The evaluation corpus never punished that, because its queries happened to be built from
+ * distinctive words. The first **real** query did, immediately: asked "why did we vendor the file
+ * lock" against a 26-record store, the token `the` appeared in 13 documents and counted exactly as
+ * much as `vendor`, which appeared in one. The correct answer did not clear the floor at all, and a
+ * record matching only `the, lock` outranked the one matching `vendor, the, file, lock` because it
+ * was shorter.
+ *
+ * A token that appears in half the corpus carries almost no information about which document you
+ * want. Weighting each match by `ln(1 + N/df)` says exactly that, and it is the same reason BM25
+ * carries an IDF term. No stopword list: a fixed list is a guess about the corpus, and the corpus
+ * can measure itself. In a store about locks, `lock` *should* stop being discriminating, and IDF
+ * does that automatically while a hand-written list would not.
+ *
+ * Deliberately still *not* co-occurrence-based: finding A-8 in the teardown is a relation extractor
+ * that manufactures an edge for every entity pair within 100 characters, at exactly its own filter
+ * threshold. Proximity is not evidence, and nothing here treats it as such.
  */
 export function lexicalChannel(docs: readonly Doc[], query: string): Channel {
   const q = new Set(tokenise(query));
-  const results = docs
+  if (q.size === 0 || docs.length === 0) return { name: 'lexical', results: [] };
+
+  // Document frequency, measured from the corpus rather than assumed from a list.
+  const df = new Map<string, number>();
+  const tokenised = docs.map((d) => ({ id: d.id, tokens: new Set(tokenise(d.text)), length: tokenise(d.text).length }));
+  for (const t of q) {
+    let n = 0;
+    for (const d of tokenised) if (d.tokens.has(t)) n++;
+    df.set(t, n);
+  }
+  const N = docs.length;
+  // The largest weight any token can earn: unique in the corpus, df = 1.
+  const maxIdf = Math.log(1 + N);
+
+  const results = tokenised
     .map((d) => {
-      const tokens = tokenise(d.text);
-      if (tokens.length === 0) return { id: d.id, score: 0 };
-      let hits = 0;
-      for (const t of tokens) if (q.has(t)) hits++;
+      if (d.length === 0) return { id: d.id, score: 0 };
+      let sum = 0;
+      for (const t of q) {
+        if (!d.tokens.has(t)) continue;
+        // ln(1 + N/df) normalised by its own maximum, ln(1 + N), so a token unique in the corpus
+        // contributes exactly 1 and one present everywhere contributes ln(2)/ln(1+N).
+        //
+        // The normalisation is not cosmetic. Without it the score scale grows with corpus size,
+        // and a fixed floor then means the SAME query against the SAME document serves or abstains
+        // depending on how much unrelated material happens to be in the store. Measured before
+        // fixing: the query "gate" against a document containing it abstained at N=3 and served at
+        // N=10. Relevance must not depend on the size of the pile it is buried in.
+        sum += Math.log(1 + N / (df.get(t) ?? N)) / maxIdf;
+      }
       // Length normalisation, so a long document does not win by having more chances to match.
-      return { id: d.id, score: hits / Math.sqrt(tokens.length) };
+      return { id: d.id, score: sum / Math.sqrt(d.length) };
     })
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : 1));
