@@ -80,6 +80,28 @@ export type Parsed = { readonly ok: true; readonly ms: number }
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const HAS_OFFSET = /(?:Z|[+-]\d{2}:\d{2})$/;
+const CALENDAR = /^(\d{4})-(\d{2})-(\d{2})/;
+
+/**
+ * Is this a date that exists?
+ *
+ * `Date.parse` does not answer that. It **rolls over**: `2026-02-29` parses happily and comes
+ * back as 1 March, so a caller asking about a day that never existed silently gets a different
+ * day. Phase 3's suite caught it. `DEC-003` forbids exactly this class of silent temporal
+ * coercion — a bound we cannot trust must be rejected, not adjusted into one we can.
+ *
+ * The check is on the written calendar date, which is correct even with an offset: an offset
+ * shifts which instant the date denotes, not whether the date is real.
+ */
+function isRealCalendarDate(s: string): boolean {
+  const m = CALENDAR.exec(s);
+  if (m === null) return false;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1) return false;
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1] as number;
+  return d <= days;
+}
 
 /**
  * Parse an ISO-8601 instant to epoch milliseconds.
@@ -94,6 +116,8 @@ const HAS_OFFSET = /(?:Z|[+-]\d{2}:\d{2})$/;
 export function parseInstant(value: string): Parsed {
   const s = value.trim();
   if (s === '') return { ok: false, reason: 'malformed_temporal_value' };
+
+  if (!isRealCalendarDate(s)) return { ok: false, reason: 'malformed_temporal_value' };
 
   if (DATE_ONLY.test(s)) {
     const ms = Date.parse(`${s}T00:00:00Z`);

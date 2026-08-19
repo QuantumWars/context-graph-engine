@@ -44,11 +44,12 @@ const USAGE = `${B}context graph engine${O}
 
   ${B}engine record${O} <id> --text <s> [--kind node|decision] [--valid-from <iso>] [--valid-until <iso>]
   ${B}engine link${O}   <source> <target> --type CAUSED|INFLUENCED|PRECEDENT_FOR [--weight 0..1]
-  ${B}engine retract${O} <id> [--reason <s>]      close its window; the content stays answerable
+  ${B}engine retract${O} <id> [--reason <s>] [--at <iso>]   close its window at <iso> (default: now);
+                                                       the content stays answerable
   ${B}engine purge${O}   <id> [--reason <s>]      remove the content; leave a tombstone
   ${B}engine at${O}      <iso> [--as-of <iso>]    point-in-time snapshot (two time axes)
   ${B}engine why${O}     <id> [--direction upstream|downstream] [--depth 5]
-  ${B}engine find${O}    <query...>               lexical + structural, fused
+  ${B}engine find${O}    <query...> [--no-record]  lexical + structural, fused (records the decision)
   ${B}engine verify${O}                           check the whole chain
   ${B}engine log${O}      [--raw]                 list the records
 
@@ -110,8 +111,8 @@ async function main(): Promise<number> {
     }
     case 'retract': {
       const id = need(args, 0, 'id');
-      const r = await store.retract(id, str('reason') ?? null);
-      console.log(`${Y}retracted${O} ${B}${id}${O} at ${r.meta.recordedAt}  ${D}content kept; window closed${O}`);
+      const r = await store.retract(id, str('reason') ?? null, str('at'));
+      console.log(`${Y}retracted${O} ${B}${id}${O} — window closed at ${String(r.meta.validFrom)}  ${D}(recorded ${r.meta.recordedAt}; content kept)${O}`);
       return 0;
     }
     case 'purge': {
@@ -154,6 +155,8 @@ async function main(): Promise<number> {
       const docs: Doc[] = store.searchable().map((d) => ({ id: d.id, text: d.text }));
       const links: Link[] = store.listEdges().map((e) => ({ source: String(e.meta.source), target: String(e.meta.target) }));
       const { decision, items } = retrieve(docs, links, query);
+      // DEC-005 lists retrieval decisions as stored. A query therefore appends.
+      if (args.flags['no-record'] !== true) await store.recordRetrieval(decision);
 
       console.log(`${B}${decision.outcome}${O}  ${D}query ${decision.queryHash} (${decision.queryChars} chars)${O}`);
       for (const c of decision.channels) {

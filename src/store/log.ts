@@ -10,7 +10,7 @@
  * which is what the lock is for.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { appendFile } from 'node:fs/promises';
 import { withFileLock } from './lock';
 import { canonicalJson } from '../provenance/canonical';
@@ -61,19 +61,7 @@ export function readLog(paths: StorePaths): readonly StoredRecord[] {
   return out;
 }
 
-/**
- * Append records under the file lock.
- *
- * Every writer stamps its own workspace; a writer whose workspace disagrees with the store's
- * own is refused rather than accepted, per `DEC-002`. The refusal names both roots and both
- * methods, because "wrong workspace" with no detail is unactionable.
- */
-export async function appendLog(
-  paths: StorePaths,
-  records: readonly StoredRecord[],
-): Promise<void> {
-  if (records.length === 0) return;
-
+function assertWorkspace(paths: StorePaths, records: readonly StoredRecord[]): void {
   for (const r of records) {
     if (r.meta.workspace !== paths.workspace.root) {
       throw new LogError(
@@ -85,26 +73,63 @@ export async function appendLog(
       );
     }
   }
+}
 
+const serialise = (records: readonly StoredRecord[]): string =>
+  records.length === 0 ? '' : records.map((r) => canonicalJson(r as never)).join('\n') + '\n';
+
+/** What a mutation decided to do, once it has seen the log's true current state. */
+export interface Mutation<T> {
+  /** Records to append to what is already there. */
+  readonly append?: readonly StoredRecord[];
+  /** The complete new contents, replacing the file. Used by purge. */
+  readonly rewrite?: readonly StoredRecord[];
+  readonly value: T;
+}
+
+/**
+ * Read the log, decide, and write — **all inside one lock**.
+ *
+ * The read has to be inside the lock, and Phase 3's concurrency test is why. The first version
+ * of this module locked only the write: a caller read the log, computed `seq` and `prev` from
+ * that snapshot, and then took the lock to append. Two processes could therefore both open an
+ * empty store, both compute `seq = 1`, and both write it:
+ *
+ *     chain_invalid: 2 problem(s); first is chain_break at seq 1 (B-0)
+ *
+ * The lock was real and in the wrong place. `seq` and `prev` are decided *from* the file's
+ * current state, so the decision is part of the critical section, not a preamble to it. Nothing
+ * single-process could have caught this — the promise queue serialises those anyway.
+ */
+export async function withLoggedMutation<T>(
+  paths: StorePaths,
+  decide: (current: readonly StoredRecord[]) => Promise<Mutation<T>> | Mutation<T>,
+): Promise<T> {
   ensureStoreDir(paths);
-  const body = records.map((r) => canonicalJson(r as never)).join('\n') + '\n';
-  await withFileLock(paths.log, async () => {
-    await appendFile(paths.log, body, 'utf8');
+  return withFileLock(paths.log, async () => {
+    const current = readLog(paths);
+    const m = await decide(current);
+
+    if (m.rewrite !== undefined) {
+      assertWorkspace(paths, m.rewrite);
+      writeFileSync(paths.log, serialise(m.rewrite), { encoding: 'utf8', mode: 0o600 });
+    } else if (m.append !== undefined && m.append.length > 0) {
+      assertWorkspace(paths, m.append);
+      await appendFile(paths.log, serialise(m.append), 'utf8');
+    }
+    return m.value;
   });
 }
 
 /**
- * Rewrite the whole log. Used only by purge, which must remove content from the file rather
- * than append a correction — an append cannot unpublish bytes that are already on disk.
+ * Append without re-reading. Only for callers that already hold the true state — currently just
+ * the workspace-boundary test, which needs to attempt a cross-workspace write directly.
  */
-export async function rewriteLog(
-  paths: StorePaths,
-  records: readonly StoredRecord[],
-): Promise<void> {
+export async function appendLog(paths: StorePaths, records: readonly StoredRecord[]): Promise<void> {
+  if (records.length === 0) return;
+  assertWorkspace(paths, records);
   ensureStoreDir(paths);
-  const body = records.length === 0 ? '' : records.map((r) => canonicalJson(r as never)).join('\n') + '\n';
   await withFileLock(paths.log, async () => {
-    const { writeFileSync: w } = await import('node:fs');
-    w(paths.log, body, { encoding: 'utf8', mode: 0o600 });
+    await appendFile(paths.log, serialise(records), 'utf8');
   });
 }

@@ -15,10 +15,11 @@
 
 import { appendEntry, purgeContent, verifyChain, type ChainEntry } from '../provenance/chain';
 import type { Json } from '../provenance/canonical';
-import { stateAt, type Snapshot, type TemporalEdge, type TemporalNode } from '../temporal/window';
+import { parseInstant, stateAt, type Snapshot, type TemporalEdge, type TemporalNode } from '../temporal/window';
 import { closingValidUntil } from '../temporal/retract';
 import { chainReport, findChains, type CausalEdge, type ChainReport, type Direction } from '../decision/causal';
-import { appendLog, readLog, rewriteLog } from './log';
+import { readLog, withLoggedMutation } from './log';
+import { assertConsistent, type RetrievalDecision } from '../retrieval/channels';
 import type { RecordKind, RecordMeta, RecordMetaInput, StoredRecord } from './records';
 import { ensureStoreDir, type StorePaths } from './paths';
 
@@ -98,48 +99,71 @@ export class Store {
 
   // ───────────────────────── mutations ─────────────────────────
 
-  /** Append one record. Every mutation goes through here, so nothing can skip the chain. */
+  /**
+   * Append one record.
+   *
+   * The chain head is read **inside the lock**, not from this instance's snapshot. Two processes
+   * that both opened an empty store would otherwise both compute `seq = 1` and both write it —
+   * which Phase 3's concurrency test reproduced. `withLoggedMutation` owns that critical section.
+   */
   async append(input: RecordInput): Promise<StoredRecord> {
-    if (this.byId(input.id) !== undefined) {
-      throw new StoreError('duplicate_id', `${JSON.stringify(input.id)} is already in this store`);
-    }
-    const rec = this.build(input.kind, input.id, input.content, {
-      recordedAt: this.deps.now(),
-      validFrom: input.validFrom ?? null,
-      validUntil: input.validUntil ?? null,
-      ...(input.source !== undefined ? { source: input.source } : {}),
-      ...(input.target !== undefined ? { target: input.target } : {}),
-      ...(input.edgeType !== undefined ? { edgeType: input.edgeType } : {}),
-      ...(input.weight !== undefined ? { weight: input.weight } : {}),
+    const rec = await withLoggedMutation(this.paths, (current) => {
+      if (current.some((r) => r.id === input.id)) {
+        throw new StoreError('duplicate_id', `${JSON.stringify(input.id)} is already in this store`);
+      }
+      const built = this.build(current, input.kind, input.id, input.content, {
+        recordedAt: this.deps.now(),
+        validFrom: input.validFrom ?? null,
+        validUntil: input.validUntil ?? null,
+        ...(input.source !== undefined ? { source: input.source } : {}),
+        ...(input.target !== undefined ? { target: input.target } : {}),
+        ...(input.edgeType !== undefined ? { edgeType: input.edgeType } : {}),
+        ...(input.weight !== undefined ? { weight: input.weight } : {}),
+      });
+      this.records = [...current, built];
+      return { append: [built], value: built };
     });
-    await appendLog(this.paths, [rec]);
-    this.records.push(rec);
     return rec;
   }
 
   /**
    * Close a subject's window and file a retraction. Content is kept — this is not erasure.
    *
-   * A retraction is **appended, never applied in place.** The first version of this method
-   * edited the target's `validUntil` and recomputed its digest, and the store's own tests
-   * caught it immediately: every later record's `prev` still pointed at the old digest, so
-   * a single retraction broke the chain. That was not a bug in the chain — it was this method
-   * violating `DEC-007`, which says records are immutable and a correction appends.
+   * A retraction is **appended, never applied in place.** The first version of this method edited
+   * the target's `validUntil` and recomputed its digest, and the store's own tests caught it
+   * immediately: every later record's `prev` still pointed at the old digest, so a single
+   * retraction broke the chain. That was not a bug in the chain — it was this method violating
+   * `DEC-007`, which says records are immutable and a correction appends.
    *
-   * So the window closure is **derived at read time** by `effectiveValidUntil` instead, using
-   * the same `min(existing, at)` narrowing rule from Algorithm 3. The log stays append-only and
-   * the chain never has to be rewritten.
+   * So the window closure is **derived at read time** by `effectiveValidUntil` instead, using the
+   * same `min(existing, at)` narrowing rule from Algorithm 3. The log stays append-only.
    */
-  async retract(id: string, reason: string | null = null): Promise<StoredRecord> {
-    const target = this.require(id);
-    const at = this.deps.now();
-    const record = this.build('retraction', `${id}:retracted:${at}`, { reason }, {
-      recordedAt: at, validFrom: at, validUntil: null,
-      subject: id, subjectKind: this.subjectKind(target), reason,
+  async retract(id: string, reason: string | null = null, at?: string): Promise<StoredRecord> {
+    return withLoggedMutation(this.paths, (current) => {
+      const target = current.find((r) => r.id === id);
+      if (target === undefined) {
+        throw new StoreError('not_found', `no record with id ${JSON.stringify(id)}`);
+      }
+      // Two different instants, and conflating them was a real bug. `closedAt` is VALID time —
+      // when the fact stopped being true, which the caller knows and the engine does not.
+      // `recordedAt` is TRANSACTION time — when we were told, which the engine supplies and a
+      // caller must not be able to set. The original takes this parameter
+      // (`context_graph.py:1556`); the port dropped it, so the only retraction expressible was
+      // "it stops being true now". Phase 3's scenario test surfaced it: a session replaying
+      // three days in March could not say a policy ended in March.
+      const recordedAt = this.deps.now();
+      const closedAt = at ?? recordedAt;
+      const p = parseInstant(closedAt);
+      if (!p.ok) {
+        throw new StoreError('not_found', `retraction instant ${JSON.stringify(closedAt)} is unusable: ${p.reason}`);
+      }
+      const record = this.build(current, 'retraction', `${id}:retracted:${closedAt}`, { reason }, {
+        recordedAt, validFrom: closedAt, validUntil: null,
+        subject: id, subjectKind: this.subjectKind(target), reason,
+      });
+      this.records = [...current, record];
+      return { append: [record], value: record };
     });
-    await appendLog(this.paths, [record]);
-    this.records.push(record);
-    return record;
   }
 
   /**
@@ -153,7 +177,8 @@ export class Store {
     let end = rec.meta.validUntil;
     for (const r of this.records) {
       if (r.kind !== 'retraction' || r.meta.subject !== rec.id) continue;
-      end = closingValidUntil(end, r.meta.recordedAt);
+      // Fold on the retraction's VALID-time instant, not when we were told about it.
+      end = closingValidUntil(end, r.meta.validFrom ?? r.meta.recordedAt);
     }
     return end;
   }
@@ -161,26 +186,64 @@ export class Store {
   /**
    * Remove a record's content and leave a tombstone.
    *
-   * The log is **rewritten**, not appended to: an append cannot unpublish bytes already on
-   * disk. `digest`, `prev`, `seq` and `contentDigest` are untouched, which is exactly why the
-   * chain still verifies afterwards (`DEC-007`).
+   * The log is **rewritten**, not appended to: an append cannot unpublish bytes already on disk.
+   * `digest`, `prev`, `seq` and `contentDigest` are untouched, which is exactly why the chain
+   * still verifies afterwards (`DEC-007`).
    */
   async purge(id: string, reason: string | null = null): Promise<StoredRecord> {
-    const target = this.require(id);
-    if (target.content === null && target.salt === null) {
-      throw new StoreError('already_purged', `${JSON.stringify(id)} has already been purged`);
-    }
-    const at = this.deps.now();
-    const tombstone = this.build('tombstone', `${id}:purged:${at}`, { reason }, {
-      recordedAt: at, validFrom: at, validUntil: null,
-      subject: id, subjectKind: this.subjectKind(target), reason,
-      contentDigest: target.contentDigest, scope: 'this-store-only',
+    return withLoggedMutation(this.paths, (current) => {
+      const target = current.find((r) => r.id === id);
+      if (target === undefined) {
+        throw new StoreError('not_found', `no record with id ${JSON.stringify(id)}`);
+      }
+      if (target.content === null && target.salt === null) {
+        throw new StoreError('already_purged', `${JSON.stringify(id)} has already been purged`);
+      }
+      const at = this.deps.now();
+      const tombstone = this.build(current, 'tombstone', `${id}:purged:${at}`, { reason }, {
+        recordedAt: at, validFrom: at, validUntil: null,
+        subject: id, subjectKind: this.subjectKind(target), reason,
+        contentDigest: target.contentDigest, scope: 'this-store-only',
+      });
+      const emptied = purgeContent(target) as StoredRecord;
+      const next = [...current.map((r) => (r.id === id ? emptied : r)), tombstone];
+      this.records = next;
+      return { rewrite: next, value: tombstone };
     });
-    const emptied = purgeContent(target) as StoredRecord;
-    this.records = this.records.map((r) => (r.id === id ? emptied : r));
-    this.records.push(tombstone);
-    await rewriteLog(this.paths, this.records);
-    return tombstone;
+  }
+
+  /**
+   * Persist a retrieval decision.
+   *
+   * `DEC-005`'s stored-data table lists retrieval decision records as stored, and until now
+   * nothing wrote one — the `retrieval` kind existed with no writer, which is schema decoration
+   * on dead code. Phase 3 resolves it by wiring the writer rather than deleting the kind,
+   * because the alternative is a system that claims to record every decision and records none
+   * of them durably.
+   *
+   * THE CONSEQUENCE, STATED: a query now mutates the store. `find` appends. That is a real
+   * cost — the log grows with reads, not only writes — and it is the price of the ledger being
+   * true rather than aspirational. `DEC-005` already forbids storing the query text, so the row
+   * carries a hash and a length; the served ids are stored because they are already in the log.
+   */
+  async recordRetrieval(decision: RetrievalDecision): Promise<StoredRecord> {
+    assertConsistent(decision);
+    return withLoggedMutation(this.paths, (current) => {
+      const at = this.deps.now();
+      const rec = this.build(current, 'retrieval', `retrieval:${decision.queryHash}:${at}`, {
+        outcome: decision.outcome,
+        queryHash: decision.queryHash,
+        queryChars: decision.queryChars,
+        served: decision.served.map((x) => x.id),
+        channels: decision.channels.map((c) => ({
+          channel: c.channel, considered: c.considered,
+          topScore: c.topScore, floor: c.floor, margin: c.margin,
+        })),
+        reason: decision.reason,
+      }, { recordedAt: at, validFrom: at, validUntil: null });
+      this.records = [...current, rec];
+      return { append: [rec], value: rec };
+    });
   }
 
   // ───────────────────────── read paths ─────────────────────────
@@ -228,7 +291,7 @@ export class Store {
   }
   /** 10 */ searchable(): readonly { id: string; text: string }[] {
     return this.live()
-      .filter((r) => r.content !== null)
+      .filter((r) => r.content !== null && r.kind !== 'retrieval')
       .map((r) => ({ id: r.id, text: JSON.stringify(r.content) }));
   }
 
@@ -264,17 +327,12 @@ export class Store {
     return this.records.find((r) => r.id === id);
   }
 
-  private require(id: string): StoredRecord {
-    const r = this.byId(id);
-    if (r === undefined) throw new StoreError('not_found', `no record with id ${JSON.stringify(id)}`);
-    return r;
-  }
-
   private subjectKind(r: StoredRecord): 'node' | 'edge' | 'decision' {
     return r.kind === 'edge' ? 'edge' : r.kind === 'decision' ? 'decision' : 'node';
   }
 
   private build(
+    chain: readonly StoredRecord[],
     kind: RecordKind,
     id: string,
     content: Json,
@@ -292,7 +350,7 @@ export class Store {
       validFrom: meta.validFrom,
       validUntil: meta.validUntil,
     };
-    const entry = appendEntry(this.records as readonly ChainEntry[], { kind, id, content, meta: full }, this.deps.salt());
+    const entry = appendEntry(chain as readonly ChainEntry[], { kind, id, content, meta: full }, this.deps.salt());
     return { ...entry, kind, meta: full } as StoredRecord;
   }
 
