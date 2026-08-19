@@ -1,0 +1,216 @@
+/**
+ * Task 2.3 — the retrieval path: two channels, fused, and every decision recorded.
+ *
+ * Both channels are pure and offline by decision: lexical over the record text, structural over
+ * the graph. An embedding channel would sit behind the same `Channel` interface `fuse()` already
+ * takes — the fusion is n-channel precisely so adding one does not reopen it.
+ *
+ * WHY THE RECORD MATTERS AS MUCH AS THE RESULT. A retrieval that serves nothing and a retrieval
+ * that crashed look identical from the outside, and a system that cannot tell them apart cannot
+ * tell working from broken. `memory/src/ledger.ts:47` splits the outcome three ways — `served`,
+ * `abstained`, `error` — after exactly that problem showed up live; the shape is adopted here.
+ *
+ * Every firing records what was considered, what was served, and per channel its top score, its
+ * floor, and the margin between them — **on served decisions as well as abstentions.** An
+ * abstention with no recorded margin is indistinguishable from a crash.
+ */
+
+import { createHash } from 'node:crypto';
+import { fuse, type Channel, type FusedItem } from './rrf';
+
+export interface Doc {
+  readonly id: string;
+  readonly text: string;
+}
+
+export interface Link {
+  readonly source: string;
+  readonly target: string;
+}
+
+/**
+ * PROVENANCE: **declared placeholder.** A lexical score below this is treated as no signal.
+ * Chosen so that a query sharing no token with a document cannot clear it, and nothing more —
+ * it has not been measured against any query distribution, because none exists yet. Calibrating
+ * it needs the evaluation harness named in `docs/future-work/README.md`.
+ */
+export const LEXICAL_FLOOR = 0.01;
+
+/**
+ * PROVENANCE: **declared placeholder.** A structural score is a count of edges to a lexical
+ * seed, so 1 is the smallest value that means "connected to something the query matched".
+ * Not calibrated; same harness would settle it.
+ */
+export const STRUCTURAL_FLOOR = 1;
+
+/** Lowercase, split on non-alphanumerics, drop 1-character tokens. */
+export function tokenise(s: string): readonly string[] {
+  return s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1);
+}
+
+/**
+ * Lexical channel — token overlap, length-normalised.
+ *
+ * Deliberately simple and deliberately *not* co-occurrence-based: finding A-8 in the teardown is
+ * a relation extractor that manufactures an edge for every entity pair within 100 characters, at
+ * exactly its own filter threshold. Proximity is not evidence, and nothing here treats it as such.
+ */
+export function lexicalChannel(docs: readonly Doc[], query: string): Channel {
+  const q = new Set(tokenise(query));
+  const results = docs
+    .map((d) => {
+      const tokens = tokenise(d.text);
+      if (tokens.length === 0) return { id: d.id, score: 0 };
+      let hits = 0;
+      for (const t of tokens) if (q.has(t)) hits++;
+      // Length normalisation, so a long document does not win by having more chances to match.
+      return { id: d.id, score: hits / Math.sqrt(tokens.length) };
+    })
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : 1));
+  return { name: 'lexical', results };
+}
+
+/**
+ * Structural channel — how strongly a record is connected to what the query already matched.
+ *
+ * Seeds are the lexical hits. A candidate scores the number of edges joining it to a seed. This
+ * is a genuine graph signal rather than a restatement of the lexical one: a record that shares no
+ * token with the query can still rank, if the graph says it sits next to the things that do.
+ */
+export function structuralChannel(
+  links: readonly Link[],
+  seedIds: readonly string[],
+): Channel {
+  const seeds = new Set(seedIds);
+  const degree = new Map<string, number>();
+  for (const l of links) {
+    if (seeds.has(l.source) && !seeds.has(l.target)) degree.set(l.target, (degree.get(l.target) ?? 0) + 1);
+    if (seeds.has(l.target) && !seeds.has(l.source)) degree.set(l.source, (degree.get(l.source) ?? 0) + 1);
+  }
+  const results = [...degree.entries()]
+    .map(([id, score]) => ({ id, score }))
+    .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : 1));
+  return { name: 'structural', results };
+}
+
+export type Outcome = 'served' | 'abstained' | 'error';
+
+export interface ChannelMargin {
+  readonly channel: string;
+  readonly considered: number;
+  /** The channel's own best raw score, or `null` when it returned nothing at all. */
+  readonly topScore: number | null;
+  readonly floor: number;
+  /** `topScore - floor`. Negative means the channel had nothing above its floor. */
+  readonly margin: number | null;
+}
+
+/**
+ * The row written for every firing. `DEC-005` forbids storing the query text, so it carries a
+ * hash and a length — the practice `memory/src/ledger.ts` already follows.
+ */
+export interface RetrievalDecision {
+  readonly outcome: Outcome;
+  readonly queryHash: string;
+  readonly queryChars: number;
+  readonly channels: readonly ChannelMargin[];
+  readonly served: readonly { id: string; fusedScore: number }[];
+  /** Always present on `abstained` and `error`; `null` on `served`. */
+  readonly reason: string | null;
+}
+
+export class ContradictoryDecisionError extends Error {
+  readonly code = 'contradictory_decision' as const;
+  constructor(message: string) {
+    super(`contradictory_decision: ${message}`);
+    this.name = 'ContradictoryDecisionError';
+  }
+}
+
+function margin(ch: Channel, floor: number): ChannelMargin {
+  const top = ch.results.length > 0 ? (ch.results[0] as { score: number }).score : null;
+  return {
+    channel: ch.name,
+    considered: ch.results.length,
+    topScore: top,
+    floor,
+    margin: top === null ? null : top - floor,
+  };
+}
+
+export interface RetrieveOptions {
+  readonly limit?: number;
+  readonly lexicalFloor?: number;
+  readonly structuralFloor?: number;
+}
+
+/**
+ * Run both channels, fuse, and return the decision — served or abstained, always with margins.
+ *
+ * A decision claiming `served` while returning nothing is **rejected as a contradiction** rather
+ * than written. That combination is not a legitimate state; it is a bug in whatever built the
+ * row, and recording it would put a lie in the audit trail.
+ */
+export function retrieve(
+  docs: readonly Doc[],
+  links: readonly Link[],
+  query: string,
+  opts: RetrieveOptions = {},
+): { decision: RetrievalDecision; items: readonly FusedItem[] } {
+  const lexFloor = opts.lexicalFloor ?? LEXICAL_FLOOR;
+  const strFloor = opts.structuralFloor ?? STRUCTURAL_FLOOR;
+  const limit = opts.limit ?? 10;
+
+  const queryHash = createHash('sha256').update(query, 'utf8').digest('hex').slice(0, 16);
+  const queryChars = query.length;
+
+  const lexical = lexicalChannel(docs, query);
+  const seeds = lexical.results.filter((r) => r.score >= lexFloor).map((r) => r.id);
+  const structural = structuralChannel(links, seeds);
+
+  const margins = [margin(lexical, lexFloor), margin(structural, strFloor)];
+
+  // Only candidates above their own channel's floor reach the fusion. Filtering here rather
+  // than after means a channel with nothing to say contributes nothing, instead of contributing
+  // its least-bad candidate — which is finding A-6 in a different costume.
+  const above: Channel[] = [
+    { name: 'lexical', results: lexical.results.filter((r) => r.score >= lexFloor) },
+    { name: 'structural', results: structural.results.filter((r) => r.score >= strFloor) },
+  ];
+
+  const items = fuse(above).slice(0, limit);
+
+  if (items.length === 0) {
+    return {
+      decision: {
+        outcome: 'abstained', queryHash, queryChars, channels: margins, served: [],
+        reason: margins.every((m) => m.topScore === null)
+          ? 'no_candidates: neither channel returned anything'
+          : 'below_floor: no candidate cleared its channel floor',
+      },
+      items,
+    };
+  }
+
+  const decision: RetrievalDecision = {
+    outcome: 'served', queryHash, queryChars, channels: margins,
+    served: items.map((i) => ({ id: i.id, fusedScore: i.fusedScore })),
+    reason: null,
+  };
+  assertConsistent(decision);
+  return { decision, items };
+}
+
+/** A row that says one thing and shows another must never reach the log. */
+export function assertConsistent(d: RetrievalDecision): void {
+  if (d.outcome === 'served' && d.served.length === 0) {
+    throw new ContradictoryDecisionError('outcome is "served" but nothing was served');
+  }
+  if (d.outcome === 'abstained' && d.served.length > 0) {
+    throw new ContradictoryDecisionError(`outcome is "abstained" but ${d.served.length} item(s) were served`);
+  }
+  if (d.outcome !== 'served' && d.reason === null) {
+    throw new ContradictoryDecisionError(`outcome is "${d.outcome}" with no reason recorded`);
+  }
+}
