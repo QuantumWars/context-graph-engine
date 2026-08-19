@@ -16,7 +16,7 @@ import { readLog } from '../src/store/log';
  */
 const READ_PATHS = [
   'contentOf', 'resolveId', 'getNode', 'listNodes', 'getDecision', 'listDecisions',
-  'getEdge', 'listEdges', 'stateAt', 'why', 'searchable',
+  'getEdge', 'listEdges', 'stateAt', 'why', 'searchable', 'propose', 'evidenceFor',
 ] as const;
 
 /** Does this read path still surface `id`? One probe per path, so all ten are really exercised. */
@@ -34,6 +34,14 @@ const probes: Record<(typeof READ_PATHS)[number], (s: Store, id: string) => bool
   stateAt: (s, id) => s.stateAt('2026-06-15T00:00:00Z').nodes.some((n) => n.id === id),
   why: (s, id) => s.why(id, 'upstream', 3).length > 0,
   searchable: (s, id) => s.searchable().some((r) => r.id === id),
+  // Both are extraction read paths (Phase 9). They surface an id when its record is still
+  // readable: propose can only run over text it can read, and evidenceFor resolves a span into it.
+  // Both surface a record by reading its TEXT, so both stop surfacing it the moment it is purged.
+  propose: (s, id) => s.propose(id).length > 0,
+  evidenceFor: (s, id) => s.listEdges().some((e) => {
+    const ev = s.evidenceFor(e.id);
+    return ev !== null && ev.source === id && ev.quote.ok;
+  }),
 };
 
 let dir: string;
@@ -52,12 +60,18 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-/** A decision, a second decision, and a causal edge between them. */
+/** Two decisions, a node, a causal edge — and a spanned record with an edge extracted from it. */
 async function seed(s: Store): Promise<void> {
   await s.append({ kind: 'decision', id: 'd1', content: { scenario: 'ship on friday', outcome: 'no' }, validFrom: '2026-01-01T00:00:00Z' });
   await s.append({ kind: 'decision', id: 'd2', content: { scenario: 'add a gate', outcome: 'yes' }, validFrom: '2026-01-01T00:00:00Z' });
   await s.append({ kind: 'node', id: 'n1', content: { text: 'a plain node' }, validFrom: '2026-01-01T00:00:00Z' });
   await s.append({ kind: 'edge', id: 'e1', content: { note: 'because of the incident' }, validFrom: '2026-01-01T00:00:00Z', source: 'd1', target: 'd2', edgeType: 'CAUSED', weight: 0.9 });
+  // Phase 9: a record whose text states a relation, and an edge confirmed from it. Without this
+  // the two extraction read paths would have nothing real to be probed against.
+  await s.append({ kind: 'node', id: 'src1', content: { text: 'The friday deploy caused a checkout outage.' }, validFrom: '2026-01-01T00:00:00Z' });
+  const p = s.propose('src1')[0];
+  if (p === undefined) throw new Error('seed: propose found nothing — the fixture cannot probe extraction');
+  await s.confirm(p, 'src1', 'n1', 'read from src1');
 }
 
 describe('workspace resolution — DEC-002', () => {
@@ -108,7 +122,7 @@ describe('Task 2.1 — one store per fact, across a save and a reload', () => {
     const targets: Record<string, string> = {
       contentOf: 'd1', resolveId: 'd1', getNode: 'n1', listNodes: 'n1', getDecision: 'd1',
       listDecisions: 'd1', getEdge: 'e1', listEdges: 'e1', stateAt: 'd1',
-      why: 'd2', searchable: 'd1',
+      why: 'd2', searchable: 'd1', propose: 'src1', evidenceFor: 'src1',
     };
     expect(Object.keys(targets).sort()).toEqual([...READ_PATHS].sort()); // anti-vacuity
 
@@ -163,12 +177,12 @@ describe('Task 2.1 — one store per fact, across a save and a reload', () => {
 describe('Task 2.2 — the store and the chain cannot diverge', () => {
   test('every mutation lands in the chain, and the count matches', async () => {
     const a = await Store.open(paths, deps);
-    await seed(a);                      // 4 appends
+    await seed(a);                      // 6 appends: 4 originals + src1 + the confirmed edge
     await a.retract('n1', 'superseded'); // +1 retraction record
     const raw = readLog(paths);
-    expect(raw).toHaveLength(5);
+    expect(raw).toHaveLength(7);
     expect(a.verify().valid).toBe(true);
-    expect(a.verify().total).toBe(5);
+    expect(a.verify().total).toBe(7);
   });
 
   test('the chain still verifies over the raw file after a purge', async () => {

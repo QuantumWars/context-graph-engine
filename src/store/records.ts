@@ -15,6 +15,18 @@ import type { WorkspaceMethod } from './paths';
 export const RECORD_KINDS = ['node', 'edge', 'decision', 'retraction', 'tombstone', 'retrieval', 'merge'] as const;
 export type RecordKind = (typeof RECORD_KINDS)[number];
 
+/**
+ * A span as it sits in a record's meta: offsets into another record, never that record's text.
+ * Mirrors `src/extract/span.ts`'s `Span`; declared here so `records.ts` keeps no import from the
+ * extractor, which is a Stage 1 module.
+ */
+export interface SpanMeta {
+  readonly source: string;
+  readonly start: number;
+  readonly end: number;
+  readonly [k: string]: Json | undefined;
+}
+
 export interface RecordMeta {
   readonly workspace: string;
   readonly workspaceMethod: WorkspaceMethod;
@@ -38,6 +50,15 @@ export interface RecordMeta {
   readonly members?: readonly string[];
   /** Merge-only. The member reads redirect to. */
   readonly canonical?: string;
+  /**
+   * Edge-only, extraction provenance — `DEC-013`. The id of the rule that fired, and the three
+   * spans it read. A span is `{source,start,end}` in UTF-16 code units and carries **no text**, so
+   * purging the source erases the evidence rather than leaving a copy behind in the edge.
+   */
+  readonly rule?: string;
+  readonly subjectSpan?: SpanMeta;
+  readonly objectSpan?: SpanMeta;
+  readonly triggerSpan?: SpanMeta;
   [k: string]: Json | undefined;
 }
 
@@ -63,6 +84,10 @@ export interface RecordMetaInput {
   readonly validFrom: string | null;
   readonly validUntil: string | null;
   readonly source?: string;
+  readonly rule?: string;
+  readonly subjectSpan?: SpanMeta;
+  readonly objectSpan?: SpanMeta;
+  readonly triggerSpan?: SpanMeta;
   readonly target?: string;
   readonly edgeType?: string;
   readonly weight?: number;

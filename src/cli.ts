@@ -55,6 +55,11 @@ const USAGE = `${B}context graph engine${O}
   ${B}engine merge${O}   <id> <id> [...] --canonical <id> [--reason <s>]
                                                assert they ARE one thing; reads then resolve to
                                                the canonical. Retract the merge to undo it.
+  ${B}engine extract${O} <id>                       relations the record's TEXT states (writes nothing)
+  ${B}engine confirm${O} <id> --n <i> --from <id> --to <id> [--note <s>]
+                                               turn proposal #i into an edge, carrying the span
+                                               it was read from. You choose the endpoints.
+  ${B}engine evidence${O} <edge-id>                 resolve an edge's span back to the text now
   ${B}engine verify${O}                           check the whole chain
   ${B}engine log${O}      [--raw]                 list the records
 
@@ -83,7 +88,7 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const known = ['record', 'link', 'retract', 'purge', 'at', 'why', 'find', 'suggest', 'merge', 'verify', 'log'];
+  const known = ['record', 'link', 'retract', 'purge', 'at', 'why', 'find', 'suggest', 'merge', 'extract', 'confirm', 'evidence', 'verify', 'log'];
   if (!known.includes(args.cmd)) {
     console.error(`${R}error${O}: unknown command ${JSON.stringify(args.cmd)}\n${D}known: ${known.join(', ')}${O}\n`);
     return 2;
@@ -172,6 +177,59 @@ async function main(): Promise<number> {
       for (const i of items) {
         console.log(`  ${G}→${O} ${i.id}  ${i.fusedScore.toFixed(5)}  ${D}${i.contributions.map((c) => `${c.channel}#${c.rank}`).join(' ')}${O}`);
       }
+      return 0;
+    }
+    case 'extract': {
+      const id = need(args, 0, 'record-id');
+      // DEC-013: this writes nothing. The proposals are derived, and the quotes are resolved for
+      // reading rather than stored anywhere.
+      const proposals = store.propose(id);
+      if (proposals.length === 0) {
+        console.log(`${D}nothing in ${id}'s text states a relation any rule recognises${O}`);
+        return 0;
+      }
+      proposals.forEach((p, i) => {
+        console.log(`\n${B}#${i}${O}  ${p.predicate}  ${D}[${p.rule}]${O}`);
+        console.log(`  subject  ${JSON.stringify(p.subjectText)}`);
+        console.log(`  object   ${JSON.stringify(p.objectText)}`);
+        console.log(`  ${Y}stated by${O} ${JSON.stringify(p.triggerText)}`);
+        console.log(`  ${D}to accept: engine confirm ${id} --n ${i} --from <record> --to <record>${O}`);
+      });
+      console.log(`\n${D}Nothing was written. These say what the TEXT states; they do not say which${O}`);
+      console.log(`${D}records the subject and object are — nothing here recognises entities, so you${O}`);
+      console.log(`${D}name the endpoints yourself.${O}`);
+      return 0;
+    }
+    case 'confirm': {
+      const id = need(args, 0, 'record-id');
+      const from = str('from'), to = str('to');
+      if (from === undefined || to === undefined) {
+        console.error(`${R}error${O}: --from and --to are required — an extractor does not know which records these are`);
+        return 2;
+      }
+      const n = Number(str('n') ?? '0');
+      // Re-running extraction is deterministic: the record is immutable (DEC-007) and the rules are
+      // a module constant, so proposal #n is the same one `extract` printed.
+      const proposals = store.propose(id);
+      const p = proposals[n];
+      if (p === undefined) {
+        console.error(`${R}error${O}: no proposal #${n} for ${id} — extract found ${proposals.length}`);
+        return 2;
+      }
+      const rec = await store.confirm(p, from, to, str('note') ?? null);
+      console.log(`${G}confirmed${O} ${from} --${p.predicate}--> ${to}  seq=${rec.seq}`);
+      console.log(`${D}  evidence: ${JSON.stringify(p.triggerText)} in ${id} [${p.rule}]${O}`);
+      console.log(`${D}  the edge stores offsets, not that text — purge ${id} and the evidence goes with it.${O}`);
+      return 0;
+    }
+    case 'evidence': {
+      const edgeId = need(args, 0, 'edge-id');
+      const ev = store.evidenceFor(edgeId);
+      if (ev === null) { console.log(`${D}${edgeId} carries no extraction provenance — it was asserted by hand${O}`); return 0; }
+      console.log(`${B}${ev.edge}${O}  ${D}[${ev.rule ?? 'no rule recorded'}]${O}`);
+      console.log(`  read from ${B}${ev.source}${O}`);
+      if (ev.quote.ok) console.log(`  ${G}states${O}: ${JSON.stringify(ev.quote.quote)}`);
+      else console.log(`  ${Y}unresolvable${O}: ${ev.quote.reason}`);
       return 0;
     }
     case 'suggest': {

@@ -30020,6 +30020,77 @@ function block(records, o = {}) {
   };
 }
 
+// src/extract/span.ts
+function spannableText(content) {
+  if (content === null || typeof content !== "object" || Array.isArray(content))
+    return null;
+  const t = content["text"];
+  return typeof t === "string" ? t : null;
+}
+function resolveSpan(span, source, opts = {}) {
+  if (source === undefined)
+    return { ok: false, reason: "source_not_found" };
+  if (opts.purged === true || source.content === null)
+    return { ok: false, reason: "source_purged" };
+  const text = spannableText(source.content);
+  if (text === null)
+    return { ok: false, reason: "source_has_no_text" };
+  if (!Number.isInteger(span.start) || !Number.isInteger(span.end)) {
+    return { ok: false, reason: "span_not_integral" };
+  }
+  if (span.end < span.start)
+    return { ok: false, reason: "span_inverted" };
+  if (span.start < 0 || span.end > text.length)
+    return { ok: false, reason: "span_out_of_bounds" };
+  return { ok: true, quote: text.slice(span.start, span.end) };
+}
+function spanOf(source, start, end) {
+  return { source, start, end };
+}
+
+// src/extract/rules.ts
+var DEFAULT_RULES = [
+  {
+    id: "caused-direct",
+    predicate: "CAUSED",
+    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3})\s+(?:caused|led\s+to|resulted\s+in)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid
+  },
+  {
+    id: "influenced-direct",
+    predicate: "INFLUENCED",
+    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3})\s+(?:influenced|informed|shaped)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid
+  },
+  {
+    id: "precedent-for",
+    predicate: "PRECEDENT_FOR",
+    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3})\s+(?:set\s+(?:a\s+)?precedent\s+for|is\s+precedent\s+for)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid
+  }
+];
+function extract(sourceId, text, rules = DEFAULT_RULES) {
+  const out = [];
+  for (const rule of rules) {
+    const re = new RegExp(rule.pattern.source, rule.pattern.flags.includes("d") ? rule.pattern.flags : `${rule.pattern.flags}d`);
+    for (const m of text.matchAll(re)) {
+      const g = m.indices?.groups;
+      const whole = m.indices?.[0];
+      if (g === undefined || whole === undefined)
+        continue;
+      const s = g["subject"];
+      const o = g["object"];
+      if (s === undefined || o === undefined)
+        continue;
+      out.push({
+        predicate: rule.predicate,
+        rule: rule.id,
+        subject: spanOf(sourceId, s[0], s[1]),
+        object: spanOf(sourceId, o[0], o[1]),
+        trigger: spanOf(sourceId, whole[0], whole[1])
+      });
+    }
+  }
+  return out;
+}
+
 // src/resolve/cluster.ts
 function cluster(ids, pairs, minScore) {
   const parent = new Map;
@@ -30094,6 +30165,16 @@ var realDeps = {
     return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
   }
 };
+function spannableTextOf(content) {
+  if (content === null || typeof content !== "object" || Array.isArray(content))
+    return null;
+  const t = content["text"];
+  return typeof t === "string" ? t : null;
+}
+function quoteOf(span, rec) {
+  const r = resolveSpan(span, rec);
+  return r.ok ? r.quote : null;
+}
 function nameOf(content) {
   if (content === null || typeof content !== "object" || Array.isArray(content))
     return "";
@@ -30284,6 +30365,65 @@ class Store {
       this.records = [...current, rec];
       return { append: [rec], value: rec };
     });
+  }
+  propose(id, rules) {
+    const rec = this.byId(id);
+    if (rec === undefined)
+      return [];
+    const text = spannableTextOf(rec.content);
+    if (text === null)
+      return [];
+    const found = rules === undefined ? extract(id, text) : extract(id, text, rules);
+    return found.map((e) => ({
+      ...e,
+      subjectText: quoteOf(e.subject, rec),
+      objectText: quoteOf(e.object, rec),
+      triggerText: quoteOf(e.trigger, rec)
+    }));
+  }
+  async confirm(p, from, to, note = null) {
+    return withLoggedMutation(this.paths, (current) => {
+      const live = current.filter((r) => r.content !== null);
+      for (const [label, endpoint] of [["from", from], ["to", to]]) {
+        if (!live.some((r) => r.id === endpoint)) {
+          throw new StoreError("endpoint_not_found", `${label} endpoint ${JSON.stringify(endpoint)} is not a live record in this store`);
+        }
+      }
+      const src = current.find((r) => r.id === p.trigger.source);
+      const q = resolveSpan(p.trigger, src === undefined ? undefined : { content: src.content });
+      if (!q.ok) {
+        throw new StoreError("span_unresolvable", `the trigger span does not resolve against ${JSON.stringify(p.trigger.source)}: ${q.reason}`);
+      }
+      const at = this.deps.now();
+      const rec = this.build(current, "edge", `${from}->${to}:${p.predicate}`, note === null ? {} : { note }, {
+        recordedAt: at,
+        validFrom: at,
+        validUntil: null,
+        source: from,
+        target: to,
+        edgeType: p.predicate,
+        rule: p.rule,
+        subjectSpan: { ...p.subject },
+        objectSpan: { ...p.object },
+        triggerSpan: { ...p.trigger }
+      });
+      this.records = [...current, rec];
+      return { append: [rec], value: rec };
+    });
+  }
+  evidenceFor(edgeId) {
+    const edge = this.byId(edgeId);
+    if (edge === undefined || edge.meta.triggerSpan === undefined)
+      return null;
+    const spanOfMeta = (m) => ({ source: m.source, start: m.start, end: m.end });
+    const trigger = spanOfMeta(edge.meta.triggerSpan);
+    const src = this.byId(trigger.source);
+    return {
+      edge: edgeId,
+      rule: typeof edge.meta.rule === "string" ? edge.meta.rule : null,
+      source: trigger.source,
+      quote: resolveSpan(trigger, src === undefined ? undefined : { content: src.content })
+    };
   }
   contentOf(id) {
     return this.byId(this.resolveId(id).canonical)?.content ?? null;
@@ -30795,6 +30935,83 @@ server.registerTool("merge", {
       seq: r.seq,
       undoWith: { tool: "retract", id: r.id },
       note: "Nothing was rewritten. Reads for the other members now answer from the canonical."
+    });
+  } catch (e) {
+    return fail(e);
+  }
+});
+server.registerTool("extract", {
+  title: "Find relations a record's text actually states",
+  description: "Read one record and return the causal relations its TEXT states, each with the exact words " + "that stated it. THIS WRITES NOTHING \u2014 no edge is created. It deliberately does NOT tell you " + "which records the subject and object are, because nothing here recognises entities and " + "guessing would be inventing a link the text never made; you choose the endpoints and pass " + "them to confirm_extraction. Relations are emitted only where a rule matched real wording, so " + "a passage that merely mentions several things near each other returns nothing at all.",
+  inputSchema: { id: exports_external.string().min(1).describe("the record to read") }
+}, async ({ id }) => {
+  try {
+    const s = await Store.open(paths());
+    const proposals = s.propose(id);
+    return ok({
+      proposals: proposals.map((p, i) => ({
+        index: i,
+        predicate: p.predicate,
+        rule: p.rule,
+        subject: p.subjectText,
+        object: p.objectText,
+        statedBy: p.triggerText
+      })),
+      wroteNothing: true,
+      note: "Nothing was written. Endpoints are yours to choose \u2014 this says what the text states, " + "not which records those phrases refer to."
+    });
+  } catch (e) {
+    return fail(e);
+  }
+});
+server.registerTool("confirm", {
+  title: "Turn one extracted relation into an edge",
+  description: "Confirm one relation that extract proposed, creating a causal edge and recording the span " + "it was read from. " + "from. The edge stores OFFSETS into the source record, never a copy of its text, so purging " + "that record erases the evidence rather than leaving a copy behind on the edge. You supply " + "from and to: the extractor found the wording, you decide which records it is about.",
+  inputSchema: {
+    id: exports_external.string().min(1).describe("the record extract was run on"),
+    index: exports_external.number().int().min(0).describe("which proposal, by its index from extract"),
+    from: exports_external.string().min(1).describe("the record the edge starts at"),
+    to: exports_external.string().min(1).describe("the record the edge points to"),
+    note: exports_external.string().optional()
+  }
+}, async ({ id, index, from, to, note }) => {
+  try {
+    const s = await Store.open(paths());
+    const proposals = s.propose(id);
+    const p = proposals[index];
+    if (p === undefined) {
+      return fail(new Error(`no proposal #${index} for ${JSON.stringify(id)} \u2014 extract found ${proposals.length}`));
+    }
+    const r = await s.confirm(p, from, to, note ?? null);
+    return ok({
+      edge: r.id,
+      seq: r.seq,
+      predicate: p.predicate,
+      rule: p.rule,
+      readFrom: id,
+      statedBy: p.triggerText,
+      note: "The edge stores offsets, not the quoted text."
+    });
+  } catch (e) {
+    return fail(e);
+  }
+});
+server.registerTool("evidence", {
+  title: "Show the text behind an edge",
+  description: "Resolve an edge's recorded span back to the words it was read from, as they stand NOW. An " + "edge asserted by hand has no such provenance and says so. If the source record was purged " + "this reports that the evidence is unresolvable \u2014 which is correct, not a fault: the text an " + "edge was read from is genuinely gone once it has been erased.",
+  inputSchema: { edgeId: exports_external.string().min(1) }
+}, async ({ edgeId }) => {
+  try {
+    const s = await Store.open(paths());
+    const ev = s.evidenceFor(edgeId);
+    if (ev === null)
+      return ok({ edge: edgeId, provenance: null, note: "asserted by hand; no span recorded" });
+    return ok({
+      edge: ev.edge,
+      rule: ev.rule,
+      readFrom: ev.source,
+      states: ev.quote.ok ? ev.quote.quote : null,
+      unresolvable: ev.quote.ok ? null : ev.quote.reason
     });
   } catch (e) {
     return fail(e);

@@ -235,6 +235,85 @@ server.registerTool('merge', {
   } catch (e) { return fail(e); }
 });
 
+server.registerTool('extract', {
+  title: 'Find relations a record\'s text actually states',
+  description:
+    'Read one record and return the causal relations its TEXT states, each with the exact words ' +
+    'that stated it. THIS WRITES NOTHING — no edge is created. It deliberately does NOT tell you ' +
+    'which records the subject and object are, because nothing here recognises entities and ' +
+    'guessing would be inventing a link the text never made; you choose the endpoints and pass ' +
+    'them to confirm_extraction. Relations are emitted only where a rule matched real wording, so ' +
+    'a passage that merely mentions several things near each other returns nothing at all.',
+  inputSchema: { id: z.string().min(1).describe('the record to read') },
+}, async ({ id }) => {
+  try {
+    const s = await Store.open(paths());
+    const proposals = s.propose(id);
+    return ok({
+      proposals: proposals.map((p, i) => ({
+        index: i, predicate: p.predicate, rule: p.rule,
+        subject: p.subjectText, object: p.objectText, statedBy: p.triggerText,
+      })),
+      wroteNothing: true,
+      note: 'Nothing was written. Endpoints are yours to choose — this says what the text states, '
+        + 'not which records those phrases refer to.',
+    });
+  } catch (e) { return fail(e); }
+});
+
+server.registerTool('confirm', {
+  title: 'Turn one extracted relation into an edge',
+  description:
+    'Confirm one relation that extract proposed, creating a causal edge and recording the span ' +
+    'it was read from. ' +
+    'from. The edge stores OFFSETS into the source record, never a copy of its text, so purging ' +
+    'that record erases the evidence rather than leaving a copy behind on the edge. You supply ' +
+    'from and to: the extractor found the wording, you decide which records it is about.',
+  inputSchema: {
+    id: z.string().min(1).describe('the record extract was run on'),
+    index: z.number().int().min(0).describe('which proposal, by its index from extract'),
+    from: z.string().min(1).describe('the record the edge starts at'),
+    to: z.string().min(1).describe('the record the edge points to'),
+    note: z.string().optional(),
+  },
+}, async ({ id, index, from, to, note }) => {
+  try {
+    const s = await Store.open(paths());
+    const proposals = s.propose(id);
+    const p = proposals[index];
+    if (p === undefined) {
+      return fail(new Error(`no proposal #${index} for ${JSON.stringify(id)} — extract found ${proposals.length}`));
+    }
+    const r = await s.confirm(p, from, to, note ?? null);
+    return ok({
+      edge: r.id, seq: r.seq, predicate: p.predicate, rule: p.rule,
+      readFrom: id, statedBy: p.triggerText,
+      note: 'The edge stores offsets, not the quoted text.',
+    });
+  } catch (e) { return fail(e); }
+});
+
+server.registerTool('evidence', {
+  title: 'Show the text behind an edge',
+  description:
+    'Resolve an edge\'s recorded span back to the words it was read from, as they stand NOW. An ' +
+    'edge asserted by hand has no such provenance and says so. If the source record was purged ' +
+    'this reports that the evidence is unresolvable — which is correct, not a fault: the text an ' +
+    'edge was read from is genuinely gone once it has been erased.',
+  inputSchema: { edgeId: z.string().min(1) },
+}, async ({ edgeId }) => {
+  try {
+    const s = await Store.open(paths());
+    const ev = s.evidenceFor(edgeId);
+    if (ev === null) return ok({ edge: edgeId, provenance: null, note: 'asserted by hand; no span recorded' });
+    return ok({
+      edge: ev.edge, rule: ev.rule, readFrom: ev.source,
+      states: ev.quote.ok ? ev.quote.quote : null,
+      unresolvable: ev.quote.ok ? null : ev.quote.reason,
+    });
+  } catch (e) { return fail(e); }
+});
+
 server.registerTool('verify', {
   title: 'Verify the chain',
   description:

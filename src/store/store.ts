@@ -21,9 +21,11 @@ import { chainReport, findChains, type CausalEdge, type ChainReport, type Direct
 import { readLog, withLoggedMutation } from './log';
 import { assertConsistent, type RetrievalDecision } from '../retrieval/channels';
 import { block } from '../resolve/blocking';
+import { extract, type Extracted, type Rule } from '../extract/rules';
+import { resolveSpan, type Span } from '../extract/span';
 import { cluster, merged, type Cluster } from '../resolve/cluster';
 import type { Candidate } from '../resolve/similarity';
-import type { RecordKind, RecordMeta, RecordMetaInput, StoredRecord } from './records';
+import type { RecordKind, RecordMeta, RecordMetaInput, SpanMeta, StoredRecord } from './records';
 import { ensureStoreDir, type StorePaths } from './paths';
 
 export type StoreErrorCode =
@@ -34,7 +36,9 @@ export type StoreErrorCode =
   | 'merge_too_small'
   | 'canonical_not_a_member'
   | 'member_already_merged'
-  | 'canonical_of_active_merge';
+  | 'canonical_of_active_merge'
+  | 'endpoint_not_found'
+  | 'span_unresolvable';
 
 export class StoreError extends Error {
   readonly code: StoreErrorCode;
@@ -74,6 +78,34 @@ export interface RecordInput {
   readonly weight?: number;
 }
 
+
+/** Extraction proposal: what a rule matched, plus the evidence resolved for reading. */
+export interface Proposal extends Extracted {
+  readonly subjectText: string | null;
+  readonly objectText: string | null;
+  readonly triggerText: string | null;
+}
+
+/** What an edge's extraction provenance resolves to now — never what it resolved to when written. */
+export interface Evidence {
+  readonly edge: string;
+  readonly rule: string | null;
+  readonly source: string;
+  readonly quote: ReturnType<typeof resolveSpan>;
+}
+
+/** The text a record offers for spanning. Mirrors `spannableText`; kept local to avoid a cycle. */
+function spannableTextOf(content: Json | null): string | null {
+  if (content === null || typeof content !== 'object' || Array.isArray(content)) return null;
+  const t = (content as Record<string, unknown>)['text'];
+  return typeof t === 'string' ? t : null;
+}
+
+/** Resolve a span for display. Derived on demand — never stored, per DEC-013. */
+function quoteOf(span: Span, rec: { readonly content: Json | null }): string | null {
+  const r = resolveSpan(span, rec);
+  return r.ok ? r.quote : null;
+}
 
 /** A record's display name, for clustering. Content is caller-shaped, so this is defensive. */
 function nameOf(content: Json | null): string {
@@ -385,6 +417,102 @@ export class Store {
   // ───────────────────────── read paths ─────────────────────────
   // Every one of these is enumerated in test/store.test.ts's READ_PATHS list. A read path
   // added here without being added there fails that test by construction.
+
+  /**
+   * Propose relations the text of one record actually states.
+   *
+   * `DEC-013`: this WRITES NOTHING. It reads the record, runs the rules, and returns what matched
+   * together with the quoted evidence, resolved on demand rather than stored. An automatic edge is
+   * an unreviewable assertion about causation written into a log whose purpose is to be trusted —
+   * the same objection `DEC-012` makes to an automatic merge.
+   *
+   * The proposal deliberately does NOT say which records the subject and object are. Nothing here
+   * recognises entities, so mapping "the friday deploy" to a record id would be invented. The
+   * caller supplies the endpoints at `confirm`, which is the honest division of labour.
+   */
+  propose(id: string, rules?: readonly Rule[]): readonly Proposal[] {
+    const rec = this.byId(id);
+    if (rec === undefined) return [];
+    const text = spannableTextOf(rec.content);
+    if (text === null) return [];
+
+    const found = rules === undefined ? extract(id, text) : extract(id, text, rules);
+    return found.map((e) => ({
+      ...e,
+      subjectText: quoteOf(e.subject, rec),
+      objectText: quoteOf(e.object, rec),
+      triggerText: quoteOf(e.trigger, rec),
+    }));
+  }
+
+  /**
+   * Turn one proposal into an edge, with the evidence it was read from recorded on it.
+   *
+   * `from` and `to` are supplied by the caller, not by the extractor — see `propose`. The spans
+   * carry offsets and never text (`DEC-013`), so purging the source erases the evidence instead of
+   * leaving a copy behind here.
+   */
+  async confirm(
+    p: Pick<Extracted, 'predicate' | 'rule' | 'subject' | 'object' | 'trigger'>,
+    from: string,
+    to: string,
+    note: string | null = null,
+  ): Promise<StoredRecord> {
+    return withLoggedMutation(this.paths, (current) => {
+      const live = current.filter((r) => r.content !== null);
+      for (const [label, endpoint] of [['from', from], ['to', to]] as const) {
+        if (!live.some((r) => r.id === endpoint)) {
+          throw new StoreError(
+            'endpoint_not_found',
+            `${label} endpoint ${JSON.stringify(endpoint)} is not a live record in this store`,
+          );
+        }
+      }
+      // The span must still resolve at the moment the edge is written. Recording evidence that
+      // already points at nothing would make the edge look supported when it is not.
+      const src = current.find((r) => r.id === p.trigger.source);
+      const q = resolveSpan(p.trigger, src === undefined ? undefined : { content: src.content });
+      if (!q.ok) {
+        throw new StoreError(
+          'span_unresolvable',
+          `the trigger span does not resolve against ${JSON.stringify(p.trigger.source)}: ${q.reason}`,
+        );
+      }
+
+      const at = this.deps.now();
+      const rec = this.build(current, 'edge', `${from}->${to}:${p.predicate}`,
+        note === null ? {} : { note },
+        {
+          recordedAt: at, validFrom: at, validUntil: null,
+          source: from, target: to, edgeType: p.predicate,
+          rule: p.rule,
+          subjectSpan: { ...p.subject }, objectSpan: { ...p.object }, triggerSpan: { ...p.trigger },
+        });
+      this.records = [...current, rec];
+      return { append: [rec], value: rec };
+    });
+  }
+
+  /**
+   * The evidence behind an edge, resolved now rather than copied when it was written.
+   *
+   * Returns `null` for an edge with no extraction provenance, and a reason code when the span
+   * cannot be resolved — most importantly `source_purged`, which is the correct and intended
+   * outcome once the text an edge was read from has been erased.
+   */
+  evidenceFor(edgeId: string): Evidence | null {
+    const edge = this.byId(edgeId);
+    if (edge === undefined || edge.meta.triggerSpan === undefined) return null;
+    const spanOfMeta = (m: SpanMeta): Span => ({ source: m.source, start: m.start, end: m.end });
+    const trigger = spanOfMeta(edge.meta.triggerSpan);
+    const src = this.byId(trigger.source);
+    return {
+      edge: edgeId,
+      rule: typeof edge.meta.rule === 'string' ? edge.meta.rule : null,
+      source: trigger.source,
+      quote: resolveSpan(trigger, src === undefined ? undefined : { content: src.content }),
+    };
+  }
 
   /** 1 */ contentOf(id: string): Json | null {
     // Resolves through an active merge. A read for a merged record answers from the canonical
