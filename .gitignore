@@ -1,0 +1,8 @@
+node_modules/
+
+# Captured context. Never committed — DEC-005 and the monorepo constitution.
+.claude/graph-engine/
+*.jsonl
+
+# Worktrees for the per-feature branches live outside the repo, but guard anyway.
+.worktrees/

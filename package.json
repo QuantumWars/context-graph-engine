@@ -1,0 +1,16 @@
+{
+  "name": "@boring/graph-engine",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Context graph engine for agentic systems. What an agent knew, decided and derived \u2014 on a tamper-evident record.",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "check": "bun run typecheck && bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}
