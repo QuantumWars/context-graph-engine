@@ -17,21 +17,31 @@ anything already researched lives in `engine/docs/research/`.
 
 Listed so they are not lost. Each needs its own page before it is worked on.
 
-- **An evaluation harness, before any constant is tuned.** `RRF_K = 60`, the causal distance
-  bands (1 / 3 / 6) and every hop weight ship as **declared placeholders** — annotated at their
-  definition sites, adopted rather than measured. Nothing here can calibrate them because there
-  is no labelled query set and no baseline arm. This is the single most load-bearing gap in the
-  engine, because it is the one that turns every other number from a guess into a measurement.
-  It is also exactly what Semantica never built: `semantica/evals/__init__.py` is ten lines
-  reading `__status__ = "coming_soon"`, which is why every threshold in that system is
-  uncalibrated by construction.
+- **~~An evaluation harness~~ — built in Phase 5.** `eval/` carries 34 records, 11 edges and 19
+  labelled queries; `eval/run.ts` compares the engine against two baselines; `eval/sweep.ts`
+  calibrates a constant or reports that it cannot; `scripts/lint-constants.mjs` fails on a
+  threshold with no provenance and is wired into `.claude/check.sh`. It earned itself immediately:
+  `LEXICAL_FLOOR` was **40× too low**, and fixing it took precision@10 from 39.6% to 78.8% and
+  correct abstentions from 1 of 3 to 3 of 3. Full record: `docs/constants-ledger.md`.
+  **Still open:** the labels were written by the author of the code, which is the largest
+  uncertainty in every number it produced.
+- **The engine is not doing rank fusion, and `RRF_K` therefore cannot be calibrated.** Phase 5
+  measured **zero cross-channel overlap across all 19 queries** — `structuralChannel` excludes
+  every lexical seed by construction, so no document is ever in both channels, and RRF's score
+  reduces to `1/(k+rank)` whose ordering is independent of `k`. What the engine does is
+  rank-interleaving of two disjoint lists. A variant allowing overlap was measured and scored
+  identically, so it was not adopted. Either rename the mechanism to what it is, or change the
+  channels so they can overlap — and today the measurement says the second buys nothing.
+- **A labelled set of causal questions.** The distance bands (1/3/6) are still placeholders and
+  need "is a three-hop chain still useful evidence?" labels, which `eval/dataset.ts` does not
+  contain. The sweep infrastructure already exists to consume such a set.
 - **An embedding retrieval channel.** The engine is lexical plus structural by decision, so
   every algorithm test is deterministic and offline. An embedding channel would sit behind the
   same `Channel` interface `src/retrieval/rrf.ts` already takes — the fusion is n-channel
   precisely so this does not require reopening it.
-- **Weighted RRF.** Considered and rejected in `docs/research/04-rank-fusion.md` for a specific
-  reason: there is nothing to fit weights against until the harness above exists. Adding an
-  unfittable weight would import the disease along with the cure.
+- **Weighted RRF.** Rejected in `docs/research/04-rank-fusion.md` for want of a harness. The
+  harness now exists — but Phase 5 found the channels never overlap, so weighting them differently
+  cannot change an ordering either. Blocked on the same finding as `RRF_K`.
 - **A shared RRF package.** `DEC-009` keeps two implementations — this engine's and
   `memory/src/recall.ts`'s — because they answer different questions. The named trigger for
   extracting a shared package is a **third** caller appearing.

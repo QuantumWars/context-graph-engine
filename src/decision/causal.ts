@@ -200,17 +200,29 @@ export function findChains(
 }
 
 /**
- * Distance bands, ported from `semantica/semantica/utils/helpers.py:586-605`.
+ * PROVENANCE: **declared placeholder.** Ported verbatim from
+ * `semantica/semantica/utils/helpers.py:586-605`, where they are the single source of truth for
+ * two consumers and are derived from no measurement. Nothing here has calibrated them either.
  *
- * PROVENANCE: **declared placeholder.** The 1 / 3 / 6 boundaries are carried over from the
- * original, where they are the single source of truth for two consumers but are not derived
- * from any measurement. Nothing here has calibrated them. Calibrating needs the evaluation
- * harness, which is post-spine work.
+ * Calibrating them needs a labelled set of *causal* questions — "is a three-hop chain still
+ * useful evidence?" — and `eval/dataset.ts` labels retrieval relevance, not chain usefulness.
+ * Building that set is the work; the sweep infrastructure already exists to consume it.
+ *
+ * Named constants rather than literals inside the function so `scripts/lint-constants.mjs` can
+ * see them. A magic number the provenance lint cannot reach is a magic number with no
+ * provenance, whatever a comment nearby says.
  */
+export const BAND_DIRECT_MAX = 1;
+/** PROVENANCE: **declared placeholder** — see `BAND_DIRECT_MAX`. */
+export const BAND_NEAR_MAX = 3;
+/** PROVENANCE: **declared placeholder** — see `BAND_DIRECT_MAX`. */
+export const BAND_MID_MAX = 6;
+
+/** Distance bands, ported from `semantica/semantica/utils/helpers.py:586-605`. */
 export function classifyDistance(hopCount: number): 'direct' | 'near' | 'mid-range' | 'distant' {
-  if (hopCount <= 1) return 'direct';
-  if (hopCount <= 3) return 'near';
-  if (hopCount <= 6) return 'mid-range';
+  if (hopCount <= BAND_DIRECT_MAX) return 'direct';
+  if (hopCount <= BAND_NEAR_MAX) return 'near';
+  if (hopCount <= BAND_MID_MAX) return 'mid-range';
   return 'distant';
 }
 
