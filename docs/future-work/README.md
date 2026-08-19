@@ -15,6 +15,19 @@ anything already researched lives in `engine/docs/research/`.
 
 ## Not yet written up, but known
 
+- **Resolution is built but not wired.** `src/resolve/` is a Stage 1 island — blocking, similarity
+  and clustering exist and nothing calls them. The interlink needs a `resolve` verb and a decision
+  nobody has made: **what a merge means in an append-only log.** Two records cannot be rewritten
+  into one, so a merge has to be a new record asserting the identity — which then interacts with
+  retraction and purge in ways nothing has thought through. That is a `DEC-`, not an afternoon.
+- **Extraction with span provenance** — recon Task 3.2, and the last unbuilt item from the rebuild
+  plan. Every edge is asserted by hand today. The warning that makes it hard is finding A-8: naive
+  co-occurrence emits 45 identical `related_to` edges for ten entities in a paragraph, at exactly
+  its own filter threshold.
+- **`semantica/reasoning/`'s Rete and Datalog engines** — real implementations, unreachable from any
+  shipped entry point. The recon has no evidence whether they work, only that nothing calls them,
+  and deciding needs a behaviour pass it never ran. Refuted and untested are not the same thing.
+
 Listed so they are not lost. Each needs its own page before it is worked on.
 
 - **~~An evaluation harness~~ — built in Phase 5.** `eval/` carries 34 records, 11 edges and 19

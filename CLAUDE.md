@@ -21,9 +21,10 @@ bun --cwd engine demo.ts all    # watch every algorithm work, in memory
 ```
 
 `demo.ts` is a **verification harness, not the product CLI**. It holds everything in memory,
-reads no store and writes no file — `src/store/` is still empty and Phase 2 owns the real CLI.
+reads no store and writes no file.
 It exists because a test asserts what someone expected, while watching the thing run shows what
-actually happens, and those are different kinds of evidence.
+actually happens, and those are different kinds of evidence. The **product** CLI is
+`bun --cwd engine src/cli.ts`, and the MCP surface is `mcp/server.bundle.mjs`.
 
 `--cwd` is load-bearing, not decoration. Measured 2026-08-19: the same command without it,
 from `graph-engine/`, fails with `error: Script not found "check"` because there is no
@@ -40,7 +41,11 @@ src/temporal/window.ts     Algorithm 2 — validity windows, stateAt
 src/temporal/retract.ts    Algorithm 3 — retract and purge
 src/retrieval/rrf.ts       Algorithm 4 — Reciprocal Rank Fusion
 src/decision/causal.ts     Algorithm 5 — decision node, causal chain
-src/store/                 EMPTY until Phase 2. See the stage rule below.
+src/resolve/               Algorithm 6 — blocking, similarity, clustering
+src/store/                 the append-only log and its rebuilt views
+src/cli.ts                 the nine-command CLI
+mcp/                       the MCP surface — the ONLY place with a dependency (DEC-011)
+eval/                      labelled sets, metrics, the sweep
 test/                      one .test.ts per module
 docs/research/             one file per feature, from the research step, with sources
 build/                     phase prompts, phase summaries, DEC records
@@ -55,10 +60,9 @@ The concrete constraint on Stage 1 files: **pure functions over plain data.** No
 store, no config, no framework, and no imports from `memory/`. If a Stage 1 algorithm needs a
 neighbour, that is a signal it is not yet minimal, not a reason to wire it early.
 
-`src/store/` stays empty until Phase 2 opens. That is what stops the scaffolding from becoming
-load-bearing before the algorithm is proven — the failure mode where the API, the database
-layer and the deployment are built first, the thing in the middle turns out not to work, and
-by then it cannot be changed.
+That rule built the first five algorithms and **none of them changed** to be wired in Phase 2 or
+hardened in Phase 3, which is the evidence it works. It still applies to every new algorithm:
+write it pure, prove it, then add callers. `src/resolve/` was built that way in Phase 7.
 
 ## Per-feature order, and it is not negotiable
 
@@ -67,9 +71,9 @@ For every feature: **port from Semantica → research for a better solution → 
 actually good about the original, and the recon found four things in Semantica worth taking
 alongside twelve defects.
 
-Research uses the built-in `WebSearch` and `WebFetch`. `../../.mcp.json` declares
-`{"mcpServers": {}}` — exa, firecrawl and context7 do not exist here, and the parent-library
-skills that instruct their use are decoration. `WebFetch` renders through a summarising model,
+Research uses the built-in `WebSearch` and `WebFetch`. `../../.mcp.json` declares one server —
+this engine itself — and exa, firecrawl and context7 still do not exist, so the parent-library
+skills that instruct their use remain decoration. `WebFetch` renders through a summarising model,
 so what it returns is one hop from the source: good enough to design from, not good enough to
 quote.
 
@@ -87,8 +91,9 @@ quote.
 
 ## What is decided and must not be re-litigated
 
-Read `build/DEC-001` … `DEC-006` before proposing an alternative; the usual next idea is
-already in a `## What was rejected` section.
+Read `build/DEC-001` … `DEC-011` before proposing an alternative; the usual next idea is
+already in a `## What was rejected` section. `DEC-006` and `DEC-001` are superseded — check the
+status line before citing one.
 
 - **One append-only `log.jsonl` is the only truth.** Derived views are rebuilt on load and
   never persisted. A persisted derived copy is a second store, and a second store for one fact
@@ -160,5 +165,7 @@ Say these plainly, in this wording, wherever the subject comes up:
   never acted on by a reader.**
 - **A purge clears this store and cannot reach a copy something else made.** Every tombstone carries
   `scope: 'this-store-only'` for that reason.
-- **`RRF_K`, both retrieval floors and the causal distance bands are adopted, not measured.** No
-  evaluation harness exists. Never describe any of them as tuned.
+- **`RRF_K` and the causal distance bands are adopted, not measured**, and `RRF_K` provably cannot
+  be measured while the retrieval channels stay disjoint. The retrieval floors **were** calibrated,
+  three times, by `eval/sweep.ts`. Never describe an adopted constant as tuned, and re-sweep a
+  calibrated one after any change to the scoring function — that is what invalidated it twice.

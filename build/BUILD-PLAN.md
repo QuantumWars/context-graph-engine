@@ -20,6 +20,7 @@ largest gap, and the harness rejected a shipped constant on its first run. Post-
 | 4 | 4 | Security pass and the §T shipped-artifact check | **closed 2026-08-19 — 210 tests, 16 threats, clean-env §T green** |
 | 5 | — | The evaluation harness | **closed 2026-08-19 — 241 tests; LEXICAL_FLOOR recalibrated 0.01 → 0.4** |
 | 6 | — | MCP surface, plugin packaging, first real corpus | **closed 2026-08-19 — 252 tests; RRF question answered on real data** |
+| 7 | — | Entity resolution: blocking, similarity, clustering | **closed 2026-08-19 — 290 tests; the recon's take list is complete** |
 
 ## The method
 
