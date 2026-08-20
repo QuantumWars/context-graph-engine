@@ -24,9 +24,16 @@ anything already researched lives in `engine/docs/research/`.
   plan. Every edge is asserted by hand today. The warning that makes it hard is finding A-8: naive
   co-occurrence emits 45 identical `related_to` edges for ten entities in a paragraph, at exactly
   its own filter threshold.
-- **`semantica/reasoning/`'s Rete and Datalog engines** — real implementations, unreachable from any
-  shipped entry point. The recon has no evidence whether they work, only that nothing calls them,
-  and deciding needs a behaviour pass it never ran. Refuted and untested are not the same thing.
+- **`semantica/reasoning/`'s Rete and Datalog engines** — **JUDGED 2026-08-20**, and the recon's
+  open question is closed. `docs/research/11-judging-the-reasoning-engines.md` has the run.
+  `DatalogReasoner` **works**: correct transitive closure, cycles terminate, no spurious
+  derivations, 1,890 facts in 49 ms. `ReteEngine` is **refuted**: its alpha filter and beta join
+  both `return True` unconditionally, and `_add_rule_to_network` never links an alpha node to its
+  beta node — so a rule with two or more conditions can never fire at all, and a one-condition rule
+  fires on every fact regardless of predicate. Neither is needed here: this engine has typed causal
+  edges and a `why` walk, and `DEC-012`/`DEC-013` would require any inference to be **derived at
+  read time and never written**, naming the rule that produced each conclusion. If rule inference is
+  ever wanted, Datalog's algorithm is a sound reference and Rete's is not.
 
 Listed so they are not lost. Each needs its own page before it is worked on.
 
