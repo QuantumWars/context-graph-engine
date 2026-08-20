@@ -10,3 +10,7 @@ node_modules/
 # explorer (DEC-020)
 explorer/node_modules/
 explorer/dist/
+
+# desktop (DEC-021)
+desktop/node_modules/
+desktop/dist/

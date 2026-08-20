@@ -216,15 +216,21 @@ describe('supply chain and secrets', () => {
     expect(external).toEqual([]);
   });
 
-  test('mcp/ is the ONLY directory permitted an external import — DEC-011', () => {
+  test('only the surface directories may hold an external import — DEC-011, as amended', () => {
     // The boundary is enforced here rather than remembered. A third-party import appearing in
     // eval/, scripts/ or test/ fails this, which is what stops the property eroding one
     // convenience at a time.
+    //
+    // `DEC-011` originally said `mcp/` alone. `DEC-020` added `explorer/` and `DEC-021` added
+    // `desktop/`, each with its reason recorded. This guard fired on both, which is why those
+    // records exist — it is narrowed to match them and NOT relaxed: `src/` is still asserted clean
+    // by the test above, and any other directory still fails here.
+    const SURFACES = ['mcp/', 'explorer/', 'desktop/'];
     const files = tracked().filter((f) => f.endsWith('.ts') || f.endsWith('.mjs'));
     expect(files.length).toBeGreaterThan(20);                     // anti-vacuity
     const offenders: string[] = [];
     for (const f of files) {
-      if (f.startsWith('mcp/')) continue;
+      if (SURFACES.some((d) => f.startsWith(d))) continue;
       for (const m of readFileSync(join(REPO, f), 'utf8').matchAll(/^\s*import\s[^;]*?from\s+'([^']+)'/gm)) {
         const spec = m[1] as string;
         if (!spec.startsWith('.') && !spec.startsWith('node:') && !spec.startsWith('bun:')) {

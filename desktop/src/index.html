@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;" />
+    <title>Context Graph</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Context Graph</h1>
+      <span id="status"></span>
+      <div class="spacer"></div>
+      <span id="ws" class="muted"></span>
+      <button id="choose">choose workspace…</button>
+      <input id="filter" type="search" placeholder="filter by id or text" />
+    </header>
+    <main>
+      <canvas id="c"></canvas>
+      <aside id="panel"></aside>
+    </main>
+    <script src="renderer.js"></script>
+  </body>
+</html>

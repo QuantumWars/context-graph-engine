@@ -1,0 +1,17 @@
+{
+  "name": "@boring/graph-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Context Graph \u2014 desktop viewer",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "bun run bundle && electron-packager . \"Context Graph\" --platform=darwin --arch=arm64 --out=dist --overwrite --app-bundle-id=in.theboringpeople.contextgraph",
+    "dmg": "bun run pack && bash scripts/make-dmg.sh",
+    "bundle": "bun build src/read-graph.ts --target=node --outfile=src/graph-reader.bundle.mjs"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-packager": "^17.1.2"
+  }
+}

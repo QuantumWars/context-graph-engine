@@ -18,6 +18,8 @@ bun run --cwd engine typecheck  # tsc --noEmit only
 
 bun --cwd engine explorer/server/server.ts   # the read-only API on 127.0.0.1:4321
 bun --cwd engine/explorer dev                # the UI on 127.0.0.1:5273, proxying /api
+bun --cwd engine/desktop start               # the desktop app — reads in-process, no server
+bun --cwd engine/desktop dmg                 # package it to dist/Context Graph.dmg
 
 bun --cwd engine demo.ts        # list the verification scenarios
 bun --cwd engine demo.ts all    # watch every algorithm work, in memory
@@ -50,6 +52,7 @@ src/store/                 the append-only log and its rebuilt views
 src/cli.ts                 the seventeen-command CLI
 mcp/                       the MCP surface — third-party code lives here (DEC-011)
 explorer/                  React + sigma read-only UI and its API (DEC-020)
+desktop/                   Electron + canvas viewer, no server at all (DEC-021)
 eval/                      labelled sets, metrics, the sweep
 test/                      one .test.ts per module
 docs/research/             one file per feature, from the research step, with sources
