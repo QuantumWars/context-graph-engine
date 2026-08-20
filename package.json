@@ -12,7 +12,8 @@
     "engine": "bun src/cli.ts",
     "bundle": "bun build mcp/server.ts --target=node --outfile mcp/server.bundle.mjs",
     "mcp": "bun mcp/server.ts",
-    "eval:link": "bun eval/link-run.ts"
+    "eval:link": "bun eval/link-run.ts",
+    "eval:extract": "bun eval/extract-run.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
