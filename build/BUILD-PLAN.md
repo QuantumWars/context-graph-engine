@@ -6,7 +6,7 @@ you should not have to ask anyone what happened.
 
 ## Status
 
-**Phases 0–20 closed.** Phase 5 reopened the build for the item the post-mortem named as the
+**Phases 0–21 closed.** Phase 5 reopened the build for the item the post-mortem named as the
 largest gap, and the harness rejected a shipped constant on its first run. Post-mortem: `POSTMORTEM.md`. The ten standing rules moved into
 `engine/CLAUDE.md`.
 
@@ -93,6 +93,7 @@ copying it would have rebuilt the erasure hole `DEC-004` closed.
 | 18 | — | The remaining gaps, in one phase | **closed 2026-08-20 — 461 tests; extraction 100%, linking NIL 7/7** |
 | 19 | — | A read-only explorer: React + sigma over a GET-only API | **closed 2026-08-20 — 472 tests; zero mutating routes** |
 | 20 | — | Desktop app on canvas, packaged as a .dmg | **closed 2026-08-20 — 479 tests; no network surface at all** |
+| 21 | — | Auto-capture at session end, from artifacts | **closed 2026-08-20 — 489 tests; DEC-005 kept intact** |
 
 ## The method
 
@@ -130,6 +131,7 @@ Those are `DEC-002` through `DEC-005` and they were made in Phase 0.
 | `DEC-019` | An acronym expands per record, and only against a record whose own name supports it |
 | `DEC-020` | The explorer is a separate package that reads over loopback and never writes |
 | `DEC-021` | The desktop app reads the store in its main process, and ships no server |
+| `DEC-022` | Session capture reads the artifacts a session created, never its transcript |
 
 ## Phase 1 — the five algorithms
 
