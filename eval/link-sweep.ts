@@ -30,22 +30,26 @@
  *   - **nil**    — of the mentions with no referent, how many are correctly rejected
  *   - **total**  — both, over every mention. This is what a threshold has to improve.
  */
-import { link } from '../src/extract/link';
+import { link, typeOnlyMatch, LINK_WEAK_MARGIN } from '../src/extract/link';
 import { MENTIONS, RECORDS } from './linking';
 
 const B = '\x1b[1m', D = '\x1b[2m', G = '\x1b[32m', Y = '\x1b[33m', O = '\x1b[0m';
 const pct = (n: number, d: number): string => (d === 0 ? '   —' : `${((100 * n) / d).toFixed(1).padStart(5)}%`);
 
 interface Row {
+  readonly mention: string;
   readonly gold: string | null;
   readonly top: string | null;
   readonly topScore: number;
   readonly margin: number | null;
+  readonly topName: string;
 }
 
 const rows: Row[] = MENTIONS.map((m) => {
   const r = link(m.mention, RECORDS);
-  return { gold: m.gold, top: r.candidates[0]?.id ?? null, topScore: r.candidates[0]?.score ?? 0, margin: r.margin };
+  return { mention: m.mention, gold: m.gold, top: r.candidates[0]?.id ?? null,
+           topScore: r.candidates[0]?.score ?? 0, margin: r.margin,
+           topName: r.candidates[0]?.name ?? '' };
 });
 
 const inStore = rows.filter((r) => r.gold !== null);
@@ -111,6 +115,10 @@ const flags: Flag[] = [
   asFlag('margin < 0.10', (r) => (r.margin ?? 1) < 0.1),
   asFlag('margin < 0.15', (r) => (r.margin ?? 1) < 0.15),
   asFlag('score < 0.30 or margin < 0.10', (r) => r.topScore < 0.3 || (r.margin ?? 1) < 0.1),
+  // The rule the engine actually ships. Without this row the table understates what is deployed,
+  // which is rule 12 in engine/CLAUDE.md — measure the rule in the form you ship it.
+  asFlag('SHIPPED: margin or type-only',
+    (r) => (r.margin ?? 1) < LINK_WEAK_MARGIN || typeOnlyMatch(r.mention, r.topName)),
 ];
 const bestFlag = Math.max(...flags.map((f) => f.nilFlagged - f.soft));
 console.log(`\n${B}the same rules as a FLAG${O}  ${D}nothing dropped, so Top-1 never moves; soft = correct answers also flagged${O}`);

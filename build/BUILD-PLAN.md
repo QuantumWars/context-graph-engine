@@ -6,7 +6,7 @@ you should not have to ask anyone what happened.
 
 ## Status
 
-**Phases 0–17 closed.** Phase 5 reopened the build for the item the post-mortem named as the
+**Phases 0–18 closed.** Phase 5 reopened the build for the item the post-mortem named as the
 largest gap, and the harness rejected a shipped constant on its first run. Post-mortem: `POSTMORTEM.md`. The ten standing rules moved into
 `engine/CLAUDE.md`.
 
@@ -90,6 +90,7 @@ copying it would have rebuilt the erasure hole `DEC-004` closed.
 | 15 | — | The linking reject option | **closed 2026-08-20 — 436 tests; NIL 14.3% → 71.4%, Top-1 unchanged** |
 | 16 | — | Type awareness for nil-near | **closed 2026-08-20 — 438 tests; NIL → 85.7%; the Phase 15 diagnosis was refuted** |
 | 17 | — | Abbreviations | **closed 2026-08-20 — 455 tests; abbreviation 1/2 → 2/2, Top-1 → 94.1%** |
+| 18 | — | The remaining gaps, in one phase | **closed 2026-08-20 — 461 tests; extraction 100%, linking NIL 7/7** |
 
 ## The method
 

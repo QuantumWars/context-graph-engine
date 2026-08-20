@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { link, inferType, LINK_WEAK_MARGIN, TYPE_NOUNS } from '../src/extract/link';
+import { link, inferType, typeOnlyMatch, LINK_WEAK_MARGIN, TYPE_NOUNS } from '../src/extract/link';
 import { similarity, type Candidate } from '../src/resolve/similarity';
 
 /** Phase 10. `DEC-014`: linking reports ranked candidates and never decides identity from a score. */
@@ -202,5 +202,46 @@ describe('Task 10.2 — the port\'s defect, demonstrated rather than described',
       expect(serialised).not.toContain(forbidden);
     }
     expect(['no_candidates', 'tie', 'ranked']).toContain(r.verdict);
+  });
+});
+
+describe('Phase 18 — agreeing only on the kind is not agreeing on identity', () => {
+  test('a shared type noun and nothing else is a weak match', () => {
+    // "the search rewrite" vs "the checkout rewrite": the only word they share is the type.
+    expect(typeOnlyMatch('the search rewrite', 'the checkout rewrite')).toBe(true);
+    expect(typeOnlyMatch('the payments team', 'the platform team')).toBe(true);
+  });
+
+  test('sharing a content word as well is NOT type-only', () => {
+    // The negative that protects every correct answer.
+    expect(typeOnlyMatch('the checkout service', 'the checkout service')).toBe(false);
+    expect(typeOnlyMatch('the checkout rewrite', 'the checkout rewrite')).toBe(false);
+  });
+
+  test('an untyped mention is never type-only, whatever it shares', () => {
+    // "no friday releases" has no type noun; treating it as one destroyed a correct link at 0.081.
+    expect(typeOnlyMatch('no friday releases', 'we stopped shipping on fridays')).toBe(false);
+  });
+
+  test('sharing nothing at all is not type-only either', () => {
+    // The rule needs something shared to say what the sharing was limited TO.
+    expect(typeOnlyMatch('the payments team', 'parking permit renewal')).toBe(false);
+  });
+
+  test('closed-class words do not count as agreement', () => {
+    // Without NON_DISTINGUISHING, "the" is shared and the rule never fires.
+    expect(typeOnlyMatch('the search rewrite', 'the checkout rewrite')).toBe(true);
+    expect(typeOnlyMatch('a search rewrite', 'a checkout rewrite')).toBe(true);
+  });
+
+  test('end to end: the search rewrite is now weak, and nothing is dropped', () => {
+    const recs = [
+      { id: 'proj-checkout-rewrite', name: 'the checkout rewrite', type: 'node' },
+      { id: 'svc-search', name: 'the search indexer', type: 'node' },
+    ];
+    const r = link('the search rewrite', recs);
+    expect(r.candidates[0]!.id).toBe('proj-checkout-rewrite');   // still ranked first
+    expect(r.verdict).toBe('weak');                              // but flagged
+    expect(r.candidates.length).toBe(2);                         // and nothing removed
   });
 });

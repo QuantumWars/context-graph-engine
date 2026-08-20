@@ -167,7 +167,7 @@ describe('the labelled set itself', () => {
     expect(s.top1).toBe(16);       // Phase 17: acronym expansion recovered "the SLO doc"
     // Phase 15 took this from 1/7 to 5/7 with a score threshold; Phase 16 switched to a margin
     // and reached 6/7 while halving the soft cost. Neither dropped a candidate.
-    expect(s.nilCorrect).toBe(6);
+    expect(s.nilCorrect).toBe(7);   // Phase 18: the type-only rule took nil-near to 5/5
     expect(s.weakButRight).toBe(1);           // the soft cost, and it is recoverable
     expect(marginSplit(judged).separation).toBeGreaterThan(0);
   });

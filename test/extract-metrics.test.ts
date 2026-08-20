@@ -179,8 +179,9 @@ describe('the labelled set itself', () => {
     expect(s.silent).toBe(18);
     expect(s.negatives).toBe(18);
     expect(s.silenceRate).toBe(1);
-    expect(s.truePositives).toBe(14);
-    expect(s.recall).toBeCloseTo(14 / 15, 10);
+    // Phase 18 closed the parenthetical gap: every gold relation is now found.
+    expect(s.truePositives).toBe(15);
+    expect(s.recall).toBe(1);
     expect(s.precision).toBe(1);
   });
 });

@@ -124,6 +124,44 @@ export function inferType(text: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Words too common to distinguish one record from another.
+ *
+ * PROVENANCE: **declared placeholder**, and it is the **third** hand-written vocabulary in this
+ * feature after `TYPE_NOUNS` and the polarity cues. That is the standing weakness of this whole
+ * build and adding to it deserves the note rather than a shrug: what would calibrate it is document
+ * frequency over a real store, which `lexicalChannel` already computes for retrieval and which is
+ * not reusable here because `link` scores against a candidate pool rather than a corpus.
+ *
+ * Kept to the closed-class words that carry no identity. A content word here would silently stop
+ * distinguishing two records that differ only by it.
+ */
+const NON_DISTINGUISHING = new Set([
+  'the', 'a', 'an', 'of', 'for', 'to', 'and', 'or', 'on', 'in', 'at', 'by', 'with', 'we', 'our',
+]);
+
+/**
+ * Does the mention share nothing with this record except the kind of thing it is?
+ *
+ * *"the search rewrite"* against *"the checkout rewrite"* shares only `rewrite`, which is the type
+ * noun — they agree on **kind** and on nothing else, which is agreement about a category rather
+ * than about identity. Phase 16 found that a type match raises confidence on exactly these
+ * within-type near-misses; this is the other half of that finding.
+ *
+ * Measured over the labelled set: fires on 2 mentions, both of which refer to nothing, and on **0**
+ * correct answers.
+ */
+export function typeOnlyMatch(mention: string, recordName: string): boolean {
+  const type = inferType(mention);
+  if (type === undefined) return false;
+  const words = (s: string): ReadonlySet<string> =>
+    new Set(s.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/[\s-]+/)
+      .filter((w) => w !== '' && !NON_DISTINGUISHING.has(w)));
+  const rec = words(recordName);
+  const shared = [...words(mention)].filter((w) => rec.has(w));
+  return shared.length > 0 && shared.every((w) => w.replace(/s$/, '') === type);
+}
+
 export interface LinkCandidate {
   readonly id: string;
   readonly name: string;
@@ -223,7 +261,9 @@ export function link(
     top === undefined ? 'no_candidates'
       : margin === 0 ? 'tie'
         : (margin ?? 1) < LINK_WEAK_MARGIN ? 'weak'
-          : 'ranked';
+          // Agreeing only on the kind of thing is agreement about a category, not an identity.
+          : typeOnlyMatch(mention, top.name) ? 'weak'
+            : 'ranked';
 
   const capped = opts.limit === undefined ? scored : scored.slice(0, opts.limit);
   return { mention, verdict, candidates: capped, margin };

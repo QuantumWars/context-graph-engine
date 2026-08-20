@@ -41,6 +41,12 @@ export interface Rule {
    * span, so recorded evidence includes the words that stated the relation and not only its
    * endpoints; `verb` locates the predicate inside it, which is what polarity scoping needs.
    *
+   * The optional `(?:\s*,[^,.;:!?]*,)?` between subject and verb is a **parenthetical**: it lets
+   * *"The audit, if thorough, informed the rewrite"* match with the subject `The audit`. It cannot
+   * cross a comma or a sentence boundary, so it is bounded structurally rather than by a token
+   * count — there is no number to calibrate. Added in Phase 18; before it, that sentence produced
+   * 0 relations AND 0 suppressed, so polarity was innocent and this pattern was not.
+   *
    * `verb` was added in Phase 14. Without it the only offset available was the start of the whole
    * match, which is the start of the subject — so the clause "before the predicate" was always
    * empty and no cue could ever be found. Measured before it existed: every polarity case still
@@ -81,17 +87,17 @@ export const DEFAULT_RULES: readonly Rule[] = [
   {
     id: 'caused-direct',
     predicate: 'CAUSED',
-    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)\s+(?<verb>caused|led\s+to|resulted\s+in)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid,
+    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)(?:\s*,[^,.;:!?]*,)?\s+(?<verb>caused|led\s+to|resulted\s+in)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid,
   },
   {
     id: 'influenced-direct',
     predicate: 'INFLUENCED',
-    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)\s+(?<verb>influenced|informed|shaped)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid,
+    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)(?:\s*,[^,.;:!?]*,)?\s+(?<verb>influenced|informed|shaped)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid,
   },
   {
     id: 'precedent-for',
     predicate: 'PRECEDENT_FOR',
-    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)\s+(?<verb>set\s+(?:a\s+)?precedent\s+for|is\s+precedent\s+for)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid,
+    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)(?:\s*,[^,.;:!?]*,)?\s+(?<verb>set\s+(?:a\s+)?precedent\s+for|is\s+precedent\s+for)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid,
   },
 ];
 

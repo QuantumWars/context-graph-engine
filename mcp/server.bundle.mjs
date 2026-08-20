@@ -30167,17 +30167,17 @@ var DEFAULT_RULES = [
   {
     id: "caused-direct",
     predicate: "CAUSED",
-    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)\s+(?<verb>caused|led\s+to|resulted\s+in)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid
+    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)(?:\s*,[^,.;:!?]*,)?\s+(?<verb>caused|led\s+to|resulted\s+in)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid
   },
   {
     id: "influenced-direct",
     predicate: "INFLUENCED",
-    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)\s+(?<verb>influenced|informed|shaped)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid
+    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)(?:\s*,[^,.;:!?]*,)?\s+(?<verb>influenced|informed|shaped)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid
   },
   {
     id: "precedent-for",
     predicate: "PRECEDENT_FOR",
-    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)\s+(?<verb>set\s+(?:a\s+)?precedent\s+for|is\s+precedent\s+for)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid
+    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)(?:\s*,[^,.;:!?]*,)?\s+(?<verb>set\s+(?:a\s+)?precedent\s+for|is\s+precedent\s+for)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid
   }
 ];
 function extract(sourceId, text, rules = DEFAULT_RULES) {
@@ -30308,6 +30308,32 @@ function inferType(text) {
   }
   return;
 }
+var NON_DISTINGUISHING = new Set([
+  "the",
+  "a",
+  "an",
+  "of",
+  "for",
+  "to",
+  "and",
+  "or",
+  "on",
+  "in",
+  "at",
+  "by",
+  "with",
+  "we",
+  "our"
+]);
+function typeOnlyMatch(mention, recordName) {
+  const type = inferType(mention);
+  if (type === undefined)
+    return false;
+  const words = (s) => new Set(s.toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/[\s-]+/).filter((w) => w !== "" && !NON_DISTINGUISHING.has(w)));
+  const rec = words(recordName);
+  const shared = [...words(mention)].filter((w) => rec.has(w));
+  return shared.length > 0 && shared.every((w) => w.replace(/s$/, "") === type);
+}
 function link(mention, records, opts = {}) {
   const mentionType = opts.type ?? inferType(mention);
   const probe = mentionType === undefined ? { id: MENTION_PROBE_ID, name: mention } : { id: MENTION_PROBE_ID, name: mention, type: mentionType };
@@ -30338,7 +30364,7 @@ function link(mention, records, opts = {}) {
   const top = scored[0];
   const next = scored[1];
   const margin = top === undefined || next === undefined ? null : top.score - next.score;
-  const verdict = top === undefined ? "no_candidates" : margin === 0 ? "tie" : (margin ?? 1) < LINK_WEAK_MARGIN ? "weak" : "ranked";
+  const verdict = top === undefined ? "no_candidates" : margin === 0 ? "tie" : (margin ?? 1) < LINK_WEAK_MARGIN ? "weak" : typeOnlyMatch(mention, top.name) ? "weak" : "ranked";
   const capped = opts.limit === undefined ? scored : scored.slice(0, opts.limit);
   return { mention, verdict, candidates: capped, margin };
 }
