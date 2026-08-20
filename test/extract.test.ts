@@ -119,7 +119,7 @@ describe('Task 9.2 — the g-flag trap', () => {
     const rule: Rule = {
       id: 'test-no-d-flag',
       predicate: 'CAUSED',
-      pattern: /(?<subject>\w+)\s+broke\s+(?<object>\w+)/g,
+      pattern: /(?<subject>\w+)\s+(?<verb>broke)\s+(?<object>\w+)/g,
     };
     expect(rule.pattern.flags).not.toContain('d');
     const text = 'deploy broke checkout';

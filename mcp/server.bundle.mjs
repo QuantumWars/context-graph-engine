@@ -30049,26 +30049,143 @@ function spanOf(source, start, end) {
   return { source, start, end };
 }
 
+// src/extract/polarity.ts
+var POLARITY_CUES = [
+  "not",
+  "never",
+  "no",
+  "nor",
+  "neither",
+  "without",
+  "nobody",
+  "nothing",
+  "none",
+  "cannot",
+  "hardly",
+  "rarely",
+  "seldom",
+  "unable",
+  "fails",
+  "failed",
+  "didn't",
+  "doesn't",
+  "wasn't",
+  "weren't",
+  "isn't",
+  "aren't",
+  "hasn't",
+  "haven't",
+  "denies",
+  "denied",
+  "refuted",
+  "disproved",
+  "rules out",
+  "ruled out",
+  "may",
+  "might",
+  "could",
+  "possibly",
+  "perhaps",
+  "probably",
+  "unclear",
+  "unknown",
+  "uncertain",
+  "suspect",
+  "suspected",
+  "allegedly",
+  "apparently",
+  "seems",
+  "seemed",
+  "appears",
+  "appeared",
+  "likely",
+  "unlikely",
+  "presumably",
+  "supposedly",
+  "whether",
+  "if",
+  "unless",
+  "would",
+  "should",
+  "assuming",
+  "suppose",
+  "hypothetically",
+  "had",
+  "believes",
+  "believed",
+  "thinks",
+  "thought",
+  "claims",
+  "claimed",
+  "alleges",
+  "alleged"
+];
+var PSEUDO_CUES = [
+  "no one disputes",
+  "nobody disputes",
+  "no one denies",
+  "nobody denies",
+  "not rule out",
+  "cannot be ruled out",
+  "no doubt",
+  "not only"
+];
+var CLAUSE_BOUNDARY = /[.;:!?,]|\s+(?:and|but|however|though|although|because|so|yet|while|whereas)\s+/gi;
+function governingClause(text, offset) {
+  const before = text.slice(0, offset);
+  let start = 0;
+  CLAUSE_BOUNDARY.lastIndex = 0;
+  for (let m = CLAUSE_BOUNDARY.exec(before);m !== null; m = CLAUSE_BOUNDARY.exec(before)) {
+    start = m.index + m[0].length;
+  }
+  return before.slice(start);
+}
+var SUBJECT_BOUNDARY = /[.;:!?,]|\s+(?:that|which|who|whom|whose|and|but|however|though|although|because|so|yet|while|whereas)\s+/gi;
+function trimmedSubjectStart(text, subjectStart, subjectEnd) {
+  const within = text.slice(subjectStart, subjectEnd);
+  let cut = 0;
+  SUBJECT_BOUNDARY.lastIndex = 0;
+  for (let m = SUBJECT_BOUNDARY.exec(within);m !== null; m = SUBJECT_BOUNDARY.exec(within)) {
+    cut = m.index + m[0].length;
+  }
+  return subjectStart + cut;
+}
+function assertsRelation(text, triggerStart) {
+  let clause = governingClause(text, triggerStart).toLowerCase();
+  for (const pseudo of PSEUDO_CUES)
+    clause = clause.split(pseudo).join(" ");
+  for (const cue of POLARITY_CUES) {
+    const pattern = new RegExp(`(?:^|[^a-z'])${cue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![a-z'])`, "i");
+    if (pattern.test(clause))
+      return { asserted: false, cue };
+  }
+  return { asserted: true, cue: null };
+}
+
 // src/extract/rules.ts
 var DEFAULT_RULES = [
   {
     id: "caused-direct",
     predicate: "CAUSED",
-    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3})\s+(?:caused|led\s+to|resulted\s+in)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid
+    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)\s+(?<verb>caused|led\s+to|resulted\s+in)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid
   },
   {
     id: "influenced-direct",
     predicate: "INFLUENCED",
-    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3})\s+(?:influenced|informed|shaped)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid
+    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)\s+(?<verb>influenced|informed|shaped)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid
   },
   {
     id: "precedent-for",
     predicate: "PRECEDENT_FOR",
-    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3})\s+(?:set\s+(?:a\s+)?precedent\s+for|is\s+precedent\s+for)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid
+    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)\s+(?<verb>set\s+(?:a\s+)?precedent\s+for|is\s+precedent\s+for)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid
   }
 ];
 function extract(sourceId, text, rules = DEFAULT_RULES) {
+  return extractWithSuppressed(sourceId, text, rules).relations;
+}
+function extractWithSuppressed(sourceId, text, rules = DEFAULT_RULES) {
   const out = [];
+  const suppressed = [];
   for (const rule of rules) {
     const re = new RegExp(rule.pattern.source, rule.pattern.flags.includes("d") ? rule.pattern.flags : `${rule.pattern.flags}d`);
     for (const m of text.matchAll(re)) {
@@ -30078,18 +30195,24 @@ function extract(sourceId, text, rules = DEFAULT_RULES) {
         continue;
       const s = g["subject"];
       const o = g["object"];
-      if (s === undefined || o === undefined)
+      const v = g["verb"];
+      if (s === undefined || o === undefined || v === undefined)
         continue;
+      const polarity = assertsRelation(text, v[0]);
+      if (!polarity.asserted) {
+        suppressed.push({ rule: rule.id, cue: polarity.cue, trigger: spanOf(sourceId, whole[0], whole[1]) });
+        continue;
+      }
       out.push({
         predicate: rule.predicate,
         rule: rule.id,
-        subject: spanOf(sourceId, s[0], s[1]),
+        subject: spanOf(sourceId, trimmedSubjectStart(text, s[0], s[1]), s[1]),
         object: spanOf(sourceId, o[0], o[1]),
         trigger: spanOf(sourceId, whole[0], whole[1])
       });
     }
   }
-  return out;
+  return { relations: out, suppressed };
 }
 
 // src/extract/link.ts

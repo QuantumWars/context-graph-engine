@@ -30,16 +30,29 @@
 
 import type { CausalEdgeType } from '../decision/causal';
 import { spanOf, type Span } from './span';
+import { assertsRelation, trimmedSubjectStart } from './polarity';
 
 export interface Rule {
   /** Stable identifier, recorded on every relation it produces so a reader can check the rule. */
   readonly id: string;
   readonly predicate: CausalEdgeType;
   /**
-   * Must declare named groups `subject` and `object`. The **whole match** is the trigger span, so
-   * the recorded evidence includes the words that stated the relation and not only its endpoints.
+   * Must declare named groups `subject`, `verb` and `object`. The **whole match** is the trigger
+   * span, so recorded evidence includes the words that stated the relation and not only its
+   * endpoints; `verb` locates the predicate inside it, which is what polarity scoping needs.
+   *
+   * `verb` was added in Phase 14. Without it the only offset available was the start of the whole
+   * match, which is the start of the subject — so the clause "before the predicate" was always
+   * empty and no cue could ever be found. Measured before it existed: every polarity case still
+   * emitted.
    */
   readonly pattern: RegExp;
+}
+
+export interface Suppressed {
+  readonly rule: string;
+  readonly cue: string;
+  readonly trigger: Span;
 }
 
 export interface Extracted {
@@ -68,17 +81,17 @@ export const DEFAULT_RULES: readonly Rule[] = [
   {
     id: 'caused-direct',
     predicate: 'CAUSED',
-    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3})\s+(?:caused|led\s+to|resulted\s+in)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid,
+    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)\s+(?<verb>caused|led\s+to|resulted\s+in)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid,
   },
   {
     id: 'influenced-direct',
     predicate: 'INFLUENCED',
-    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3})\s+(?:influenced|informed|shaped)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid,
+    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)\s+(?<verb>influenced|informed|shaped)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid,
   },
   {
     id: 'precedent-for',
     predicate: 'PRECEDENT_FOR',
-    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3})\s+(?:set\s+(?:a\s+)?precedent\s+for|is\s+precedent\s+for)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid,
+    pattern: /(?<subject>[\w-]+(?:\s+[\w-]+){0,3}?)\s+(?<verb>set\s+(?:a\s+)?precedent\s+for|is\s+precedent\s+for)\s+(?<object>[\w-]+(?:\s+[\w-]+){0,3})/gid,
   },
 ];
 
@@ -93,7 +106,23 @@ export function extract(
   text: string,
   rules: readonly Rule[] = DEFAULT_RULES,
 ): readonly Extracted[] {
+  return extractWithSuppressed(sourceId, text, rules).relations;
+}
+
+/**
+ * `extract`, plus what polarity threw away.
+ *
+ * A suppressed match is not nothing: it says the text mentions this relation and does not assert
+ * it, which is worth showing a caller who expected an edge. Silently dropping it would make the
+ * extractor look like it had not noticed.
+ */
+export function extractWithSuppressed(
+  sourceId: string,
+  text: string,
+  rules: readonly Rule[] = DEFAULT_RULES,
+): { readonly relations: readonly Extracted[]; readonly suppressed: readonly Suppressed[] } {
   const out: Extracted[] = [];
+  const suppressed: Suppressed[] = [];
 
   for (const rule of rules) {
     // A fresh RegExp per call, to guarantee the `d` flag — without it `m.indices` is undefined and
@@ -117,17 +146,26 @@ export function extract(
       if (g === undefined || whole === undefined) continue;
       const s = g['subject'];
       const o = g['object'];
-      if (s === undefined || o === undefined) continue;
+      const v = g['verb'];
+      if (s === undefined || o === undefined || v === undefined) continue;
+
+      // Does the clause actually assert this, or deny, hedge or merely ask it? A regex over
+      // `caused` cannot tell, and Phase 13 measured five false positives that were all this.
+      const polarity = assertsRelation(text, v[0]);
+      if (!polarity.asserted) {
+        suppressed.push({ rule: rule.id, cue: polarity.cue as string, trigger: spanOf(sourceId, whole[0], whole[1]) });
+        continue;
+      }
 
       out.push({
         predicate: rule.predicate,
         rule: rule.id,
-        subject: spanOf(sourceId, s[0], s[1]),
+        subject: spanOf(sourceId, trimmedSubjectStart(text, s[0], s[1]), s[1]),
         object: spanOf(sourceId, o[0], o[1]),
         trigger: spanOf(sourceId, whole[0], whole[1]),
       });
     }
   }
 
-  return out;
+  return { relations: out, suppressed };
 }

@@ -11,7 +11,7 @@
 import { extract } from '../src/extract/rules';
 import { resolveSpan, type Span } from '../src/extract/span';
 import { byFamily, judgeText, scoreExtraction, type EmittedRelation, type TextOutcome } from './extract-metrics';
-import { TEXTS } from './extraction';
+import { ALL as TEXTS } from './extraction';
 
 const B = '\x1b[1m', D = '\x1b[2m', Y = '\x1b[33m', R = '\x1b[31m', O = '\x1b[0m';
 const pct = (x: number): string => `${(100 * x).toFixed(1).padStart(5)}%`;

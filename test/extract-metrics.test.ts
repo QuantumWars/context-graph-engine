@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { byFamily, judgeText, relKey, scoreExtraction, type EmittedRelation, type TextOutcome } from '../eval/extract-metrics';
-import { GOLD_COUNT, NEGATIVE, POSITIVE, TEXTS } from '../eval/extraction';
+import { ALL, GOLD_COUNT, NEGATIVE, POSITIVE } from '../eval/extraction';
 import { extract } from '../src/extract/rules';
 import { resolveSpan, type Span } from '../src/extract/span';
 import type { GoldRelation } from '../eval/extraction';
@@ -98,7 +98,7 @@ describe('scoreExtraction — hand-computed', () => {
     expect(s.silenceRate).toBeCloseTo(0.5, 10);
 
     // The point of keeping it separate: emitting nothing at all gives perfect silence and zero F1.
-    const mute = TEXTS.map((t) => judgeText(t.id, t.family, t.gold, []));
+    const mute = ALL.map((t) => judgeText(t.id, t.family, t.gold, []));
     const m = scoreExtraction(mute);
     expect(m.silenceRate).toBe(1);
     expect(m.f1).toBe(0);
@@ -130,18 +130,18 @@ describe('the labelled set itself', () => {
   test('most of it is negative, because a positive-only set cannot see finding A-8', () => {
     // An extractor that fires on everything scores 100% recall on a set with no negatives.
     expect(NEGATIVE.length).toBeGreaterThan(POSITIVE.length);
-    expect(POSITIVE.length + NEGATIVE.length).toBe(TEXTS.length);
+    expect(POSITIVE.length + NEGATIVE.length).toBe(ALL.length);
     expect(GOLD_COUNT).toBeGreaterThan(0);
   });
 
   test('no two texts are the same string, and every id is unique', () => {
-    expect(new Set(TEXTS.map((t) => t.text)).size).toBe(TEXTS.length);
-    expect(new Set(TEXTS.map((t) => t.id)).size).toBe(TEXTS.length);
+    expect(new Set(ALL.map((t) => t.text)).size).toBe(ALL.length);
+    expect(new Set(ALL.map((t) => t.id)).size).toBe(ALL.length);
   });
 
   test('every gold subject and object is a literal substring of its text', () => {
     // Otherwise a label could never be matched, and recall would be capped by the set, not the code.
-    for (const t of TEXTS) {
+    for (const t of ALL) {
       for (const rel of t.gold) {
         expect({ id: t.id, subjectPresent: t.text.includes(rel.subject) })
           .toEqual({ id: t.id, subjectPresent: true });
@@ -155,7 +155,7 @@ describe('the labelled set itself', () => {
     // Measured 2026-08-20: "did not cause" and "Did ... cause?" are missed because English puts the
     // verb in the infinitive there, which has nothing to do with polarity. Without a past-tense row
     // those families would be credited for an accident of grammar. This asserts the trap is present.
-    const polarity = TEXTS.filter((t) => t.family === 'negative-negated' || t.family === 'negative-question');
+    const polarity = ALL.filter((t) => t.family === 'negative-negated' || t.family === 'negative-question');
     const pastTense = polarity.filter((t) => /\bcaused\b/i.test(t.text));
     expect(pastTense.length).toBeGreaterThanOrEqual(2);
   });
@@ -167,16 +167,20 @@ describe('the labelled set itself', () => {
       const r = resolveSpan(span, { content: { text } });
       return r.ok ? r.quote : `<${r.reason}>`;
     };
-    const outcomes = TEXTS.map((t) => judgeText(t.id, t.family, t.gold,
+    const outcomes = ALL.map((t) => judgeText(t.id, t.family, t.gold,
       extract(t.id, t.text).map((x) => ({
         predicate: x.predicate, subject: quote(x.subject, t.text), object: quote(x.object, t.text),
       }))));
     const s = scoreExtraction(outcomes);
-    expect(s.recall).toBe(1);                 // every stated relation is found
-    expect(s.truePositives).toBe(10);
-    expect(s.falsePositives).toBe(5);         // polarity: negation, hedging, embedded questions
-    expect(s.precision).toBeCloseTo(10 / 15, 10);
-    expect(s.silent).toBe(8);
-    expect(s.negatives).toBe(13);
+    // Phase 14 moved these. Polarity took false positives to zero and silence to complete; the one
+    // remaining miss is the parenthetical subject, which is a rule-coverage gap and not a polarity
+    // one — measured as 0 relations AND 0 suppressed.
+    expect(s.falsePositives).toBe(0);
+    expect(s.silent).toBe(18);
+    expect(s.negatives).toBe(18);
+    expect(s.silenceRate).toBe(1);
+    expect(s.truePositives).toBe(14);
+    expect(s.recall).toBeCloseTo(14 / 15, 10);
+    expect(s.precision).toBe(1);
   });
 });

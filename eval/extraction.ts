@@ -57,7 +57,8 @@
 export type ExtractFamily =
   | 'stated-causal' | 'stated-influence' | 'stated-precedent' | 'stated-multiple'
   | 'negative-cooccurrence' | 'negative-negated' | 'negative-hedged' | 'negative-question'
-  | 'negative-narrative';
+  | 'negative-narrative'
+  | 'scope-other-clause' | 'pseudo-negation' | 'negative-counterfactual' | 'stated-parenthetical';
 
 export interface GoldRelation {
   readonly predicate: 'CAUSED' | 'INFLUENCED' | 'PRECEDENT_FOR';
@@ -207,9 +208,76 @@ export const TEXTS: readonly LabelledText[] = [
   },
 ];
 
+// ── Phase 14, polarity. These ten were HELD OUT while the polarity check was built: none of them
+// informed the cue list, and the first version of that check scored 6 of 10 on them against 100% on
+// everything above. They are promoted into the set now so they guard against a regression, and the
+// history is recorded in build/phase-14-summary.md so nobody reads a later 10/10 as the original
+// result.
+const HELD_OUT: readonly LabelledText[] = [
+  {
+    id: 'sc1', family: 'scope-other-clause',
+    text: 'The deploy caused the outage, which was not detected for an hour.',
+    gold: [{ predicate: 'CAUSED', subject: 'The deploy', object: 'the outage' }],
+    note: 'the denial is after the verb and about something else',
+  },
+  {
+    id: 'sc2', family: 'scope-other-clause',
+    text: 'It is not raining and the deploy caused the outage.',
+    gold: [{ predicate: 'CAUSED', subject: 'the deploy', object: 'the outage' }],
+    note: 'the denial governs the other half of the sentence',
+  },
+  {
+    id: 'sc3', family: 'scope-other-clause',
+    text: 'The rollback did not prevent the failure; the deploy caused the outage.',
+    gold: [{ predicate: 'CAUSED', subject: 'the deploy', object: 'the outage' }],
+  },
+  {
+    id: 'ps1', family: 'pseudo-negation',
+    text: 'No one disputes that the deploy caused the outage.',
+    gold: [{ predicate: 'CAUSED', subject: 'the deploy', object: 'the outage' }],
+    note: 'a double negative asserts; NegEx calls these pseudo-negation terms',
+  },
+  {
+    id: 'cf1', family: 'negative-counterfactual',
+    text: 'Had the deploy caused the outage, we would have rolled back.',
+    gold: [],
+    note: 'counterfactual: states what would follow IF, not that it did',
+  },
+  {
+    id: 'nq1', family: 'negative-question',
+    text: 'The report questions whether the migration caused the timeout.',
+    gold: [],
+  },
+  {
+    id: 'nn1', family: 'negative-negated',
+    text: 'Nothing suggests the deploy caused the outage.',
+    gold: [],
+  },
+  {
+    id: 'nn2', family: 'negative-negated',
+    text: 'We cannot say the deploy caused the outage.',
+    gold: [],
+  },
+  {
+    id: 'nh1', family: 'negative-hedged',
+    text: 'The deploy allegedly caused the outage.',
+    gold: [],
+    note: 'reported, not asserted',
+  },
+  {
+    id: 'pr1', family: 'stated-parenthetical',
+    text: 'The audit, if thorough, informed the rewrite.',
+    gold: [{ predicate: 'INFLUENCED', subject: 'The audit', object: 'the rewrite' }],
+    note: 'A KNOWN RECALL GAP, and not a polarity one. Measured: 0 relations AND 0 suppressed, so '
+      + 'the rule never matched — the subject pattern admits only word characters and cannot span '
+      + 'a parenthetical. Polarity gets this right: asked directly, assertsRelation returns true.',
+  },
+];
+
 /** Texts that state at least one relation. */
-export const POSITIVE: readonly LabelledText[] = TEXTS.filter((t) => t.gold.length > 0);
+export const ALL: readonly LabelledText[] = [...TEXTS, ...HELD_OUT];
+export const POSITIVE: readonly LabelledText[] = ALL.filter((t) => t.gold.length > 0);
 /** Texts whose correct output is silence. */
-export const NEGATIVE: readonly LabelledText[] = TEXTS.filter((t) => t.gold.length === 0);
+export const NEGATIVE: readonly LabelledText[] = ALL.filter((t) => t.gold.length === 0);
 /** Every gold relation across the set. */
-export const GOLD_COUNT: number = TEXTS.reduce((n, t) => n + t.gold.length, 0);
+export const GOLD_COUNT: number = ALL.reduce((n, t) => n + t.gold.length, 0);
