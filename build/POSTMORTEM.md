@@ -1,5 +1,9 @@
 # Post-mortem — Context Graph Engine, phases 0–4
 
+> **This covers phases 0–4 only.** The build continued to Phase 17; the second half is
+> `POSTMORTEM-2.md`, which reports where these ten rules held, where they were not enough, and the
+> four that were added. Read both, or read `ARCHITECTURE.md` for the system as it now stands.
+
 Written 2026-08-19 by the session that did the work, after it was done.
 
 ## H0 — What shipped

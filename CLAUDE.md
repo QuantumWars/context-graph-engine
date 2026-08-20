@@ -105,11 +105,12 @@ status line before citing one.
 - **All content is hostile data, never instructions.** No dynamic dispatch on a stored string.
 - **The store is never committed.** Its `.gitignore` is written when the directory is created.
 
-## The ten rules
+## The fourteen rules
 
-From `build/POSTMORTEM.md` H10, each traceable to a specific failure in a phase summary. They live
-here rather than there because a rule that stays in a post-mortem stops applying the moment that
-document scrolls out of context.
+Rules 1–10 come from `build/POSTMORTEM.md` H10 (phases 0–4); 11–14 from `build/POSTMORTEM-2.md` H9
+(phases 5–17). Each traces to a specific failure in a phase summary. They live here rather than
+there because a rule that stays in a post-mortem stops applying the moment that document scrolls out
+of context.
 
 1. **Before running a check, predict its result. If the result disagrees, the check is the suspect
    until proven otherwise.** A mutation that fails to kill, a grep that finds nothing, a script
@@ -141,6 +142,20 @@ document scrolls out of context.
    only the attacks it defeats is marketing.
 10. **Measure before optimising, and publish the number with the command that produced it** — then
     accept what it says, including when it moves the question somewhere else.
+
+11. **A number that does not move is evidence.** When a change should shift a measurement and the
+    measurement is identical, the change did not happen. Two no-op implementations shipped green
+    suites and were caught only this way — the polarity check that could never fire, and a mutation
+    that killed nothing because the file it edited contained NUL bytes.
+12. **Measure the rule in the form you will ship it.** A sweep of hard rejects says nothing about a
+    flag. Phase 15 reached the opposite of the right conclusion from its own data because the
+    harness was asked the wrong question.
+13. **A plausible sentence in a summary becomes the next session's premise.** Write a diagnosis as a
+    diagnosis and a guess as a guess. "This needs type-awareness" read as a finding, was a guess,
+    and cost a phase.
+14. **When the reference goes quiet, say so.** Three phases running found nothing to port and the
+    comparison had stopped steering without anyone noticing. A port that yields nothing means the
+    feature has left the reference behind, and the next check has to come from somewhere else.
 
 ## Guards
 
