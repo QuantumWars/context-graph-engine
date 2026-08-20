@@ -6,13 +6,19 @@ you should not have to ask anyone what happened.
 
 ## Status
 
-**Phases 0–13 closed.** Phase 5 reopened the build for the item the post-mortem named as the
+**Phases 0–14 closed.** Phase 5 reopened the build for the item the post-mortem named as the
 largest gap, and the harness rejected a shipped constant on its first run. Post-mortem: `POSTMORTEM.md`. The ten standing rules moved into
 `engine/CLAUDE.md`.
 
 Phase 8 wired entity resolution into the store, which was the last component with no caller.
 Both defects it found were found by **running the CLI**, not by the suite — including one in the
 error message of the guard the phase existed to build.
+
+Phase 14 fixed the polarity false positives Phase 13 measured — precision 66.7% → 100%, silence
+61.5% → 100% — and is the first change here judged by a harness rather than by argument. Its first
+implementation was a **no-op**: it scoped from the trigger span, which starts at the subject, so the
+governing clause was always empty and no cue could fire. The eval numbers not moving is what exposed
+it. A held-out set scored that version 6/10 against 100% on the set that motivated it.
 
 Phase 13 closed the older harness gap. Extraction's A-8 defence is confirmed — texts naming many
 entities with no stated relation are 100% silent — and recall is 100%, but **polarity is not handled
@@ -61,6 +67,7 @@ copying it would have rebuilt the erasure hole `DEC-004` closed.
 | 11 | — | What the Semantica comparison changed: threshold, ceiling, merged view | **closed 2026-08-20 — 383 tests; suggest default 0.6 → 0.7 on measurement** |
 | 12 | — | Evaluation harness for entity linking | **closed 2026-08-20 — 397 tests; Top-1 88.2%, NIL 14.3%** |
 | 13 | — | Evaluation harness for extraction | **closed 2026-08-20 — 415 tests; recall 100%, precision 66.7%** |
+| 14 | — | Polarity: negation, hedging and counterfactuals | **closed 2026-08-20 — 431 tests; precision 66.7% → 100%, silence → 100%** |
 
 ## The method
 
@@ -92,6 +99,7 @@ Those are `DEC-002` through `DEC-005` and they were made in Phase 0.
 | `DEC-013` | A span is a pointer into an immutable record, never a copy; an extractor proposes and never writes |
 | `DEC-014` | Linking reports ranked candidates and never decides identity from a score |
 | `DEC-015` | A merged view is composed at read time, with one rule and every disagreement reported |
+| `DEC-016` | A relation is emitted only when its clause asserts it; scope is a clause, not a window |
 
 ## Phase 1 — the five algorithms
 
