@@ -10,10 +10,15 @@ each step.
 **Legend.** 🛑 = a `STOP`: lands in production data, a schema, a stack, or a trust boundary — the
 operator signs off before it is written. ⏸ = gated on a measurement, not built until the gate opens.
 
-**The two locked decisions** (operator, 2026-08-20), formalised in Phase 0:
-1. Transcripts are captured — supersedes `DEC-005`.
-2. One store per project; shared schema and tools; `project-graphx` is the global layer — `DEC-002`
-   survives.
+**Scope, revised 2026-08-20:** transcript capture (Phase 4) is **deferred** — the operator's call
+that the current system handles context well enough without it, and that keeping `DEC-005` intact is
+worth more than the extra recall. That removes the `DEC-005` supersession, the retention question and
+one `STOP` entirely. The path to first value is **0 → 1 → 2 → 6**; Phases 3, 5, 7 enrich it; 4 and 8
+are out of the current pass.
+
+**The one locked decision** (operator, 2026-08-20), formalised in Phase 0:
+1. One store per project; shared schema and tools; `project-graphx` is the global layer — `DEC-002`
+   survives. *(Transcripts are NOT captured in this pass, so `DEC-005` stands unchanged.)*
 
 ---
 
@@ -22,13 +27,13 @@ operator signs off before it is written. ⏸ = gated on a measurement, not built
 **Goal.** Turn the architecture doc's choices into `DEC` records, and settle the two open questions
 that Phase 1 cannot start without.
 
-**Deliverables.**
-- `DEC` superseding `DEC-005` (transcripts captured), with the erasure argument from §5.3.
+**Deliverables.** (Transcripts deferred, so the `DEC-005` supersession is dropped — two records, not
+three.)
 - `DEC` for the node-type model: **re-scannable vs attested**, and whether re-scannable nodes live
   in `log.jsonl` or a sibling `derived.jsonl`. *(§11, open question 3.)*
 - `DEC` for the `author` identity field — its shape and allowed values.
 
-**Done when.** Three `DEC` records exist and pass `evidence-gate`'s decision-record checks. No code.
+**Done when.** Two `DEC` records exist and pass `evidence-gate`'s decision-record checks. No code.
 
 **Why first.** Phases 1–7 all read the node-type split and the `author` field. Deciding them once,
 in the open, is what stops two later phases building incompatible schemas.
@@ -99,7 +104,12 @@ history, already on disk, become queryable.
 
 ---
 
-## Phase 4 — Transcript as a spanned source, and the purge test 🛑
+## Phase 4 — Transcript as a spanned source, and the purge test 🛑 ⏸ DEFERRED
+
+**DEFERRED 2026-08-20** — the operator judged the current system handles context well enough without
+raw transcripts, and that keeping `DEC-005` intact is worth more than the recall. Revisit only if the
+reads (Phase 6) prove insufficient without conversation context. The design below stands for when it
+is picked up.
 
 **Goal.** Store the session transcript as a source the graph points into, never copies — and prove
 purge erases it.
@@ -201,5 +211,6 @@ supersedes `d-no-model` with evidence.
 
 ## The one-line order
 
-**0** lock decisions → **1** schema 🛑 → **2** git spine → **3** sessions → **4** transcripts 🛑 →
-**5** type `.claude` → **6** the reads → **7** federate graphx → **8** embeddings ⏸
+Current pass: **0** lock 2 decisions → **1** schema 🛑 → **2** git spine → **6** the reads → then
+**3** sessions → **5** type `.claude` → **7** federate graphx.
+Deferred: **4** transcripts, **8** embeddings ⏸.
