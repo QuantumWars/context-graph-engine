@@ -6,13 +6,18 @@ you should not have to ask anyone what happened.
 
 ## Status
 
-**Phases 0–10 closed.** Phase 5 reopened the build for the item the post-mortem named as the
+**Phases 0–11 closed.** Phase 5 reopened the build for the item the post-mortem named as the
 largest gap, and the harness rejected a shipped constant on its first run. Post-mortem: `POSTMORTEM.md`. The ten standing rules moved into
 `engine/CLAUDE.md`.
 
 Phase 8 wired entity resolution into the store, which was the last component with no caller.
 Both defects it found were found by **running the CLI**, not by the suite — including one in the
 error message of the guard the phase existed to build.
+
+Phase 11 acted on the measured comparison with `semantica`: the `suggest` default moved from 0.6 to
+0.7 (precision 4.4% → 100% at unchanged recall), the shared 0.9 score ceiling was named and guarded,
+and `mergedView` was added because composing merged members is the one place their design did more
+than ours. The old default was a bare parameter that `constants-gate` could not see.
 
 Phase 10 closed the gap Phase 9 named as its own largest — a proposal could say what the text
 stated but not which records the phrases referred to — and closed it without introducing a constant.
@@ -38,6 +43,7 @@ copying it would have rebuilt the erasure hole `DEC-004` closed.
 | 8 | — | Wire resolution into the store: suggest, merge, resolve reads | **closed 2026-08-20 — 313 tests; purging a merge canonical now refused** |
 | 9 | — | Extraction with span provenance: spans, rules, propose/confirm | **closed 2026-08-20 — 347 tests; A-8 closed, the recon's list finished** |
 | 10 | — | Entity linking: mention → ranked candidate records | **closed 2026-08-20 — 372 tests; closed with NO new constant** |
+| 11 | — | What the Semantica comparison changed: threshold, ceiling, merged view | **closed 2026-08-20 — 383 tests; suggest default 0.6 → 0.7 on measurement** |
 
 ## The method
 
@@ -68,6 +74,7 @@ Those are `DEC-002` through `DEC-005` and they were made in Phase 0.
 | `DEC-012` | A merge is an appended assertion about identity; a cluster is derived and never stored |
 | `DEC-013` | A span is a pointer into an immutable record, never a copy; an extractor proposes and never writes |
 | `DEC-014` | Linking reports ranked candidates and never decides identity from a score |
+| `DEC-015` | A merged view is composed at read time, with one rule and every disagreement reported |
 
 ## Phase 1 — the five algorithms
 

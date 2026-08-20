@@ -44,7 +44,7 @@ src/decision/causal.ts     Algorithm 5 — decision node, causal chain
 src/resolve/               Algorithm 6 — blocking, similarity, clustering
 src/extract/               Algorithms 7–8 — spans, rule-based extraction, entity linking
 src/store/                 the append-only log and its rebuilt views
-src/cli.ts                 the fifteen-command CLI
+src/cli.ts                 the seventeen-command CLI
 mcp/                       the MCP surface — the ONLY place with a dependency (DEC-011)
 eval/                      labelled sets, metrics, the sweep
 test/                      one .test.ts per module
