@@ -27,6 +27,7 @@
 
 import { blockKeys } from '../resolve/blocking';
 import { similarity, type Candidate } from '../resolve/similarity';
+import { expandAgainst } from './acronym';
 
 /**
  * The id given to the mention while it is scored against real records.
@@ -195,7 +196,19 @@ export function link(
     // team from a service. Its head noun can, and falls back to the kind when there is none.
     const recType = inferType(r.name) ?? r.type;
     const typed: Candidate = recType === undefined ? { id: r.id, name: r.name } : { id: r.id, name: r.name, type: recType };
-    scored.push({ id: r.id, name: r.name, score: similarity(probe, typed).total });
+
+    // An acronym is expanded ONLY against a record whose own name supports it, per Schwartz &
+    // Hearst's matching rule. `the SLO doc` becomes `the service level objective doc` for the
+    // record that spells it out, and stays `the SLO doc` for every record that does not — so a
+    // short form cannot lift the score of a record it has nothing to do with.
+    const expanded = expandAgainst(probe.name, r.name);
+    const scoreProbe: Candidate = expanded === probe.name
+      ? probe
+      : mentionType === undefined
+        ? { id: probe.id, name: expanded }
+        : { id: probe.id, name: expanded, type: mentionType };
+
+    scored.push({ id: r.id, name: r.name, score: similarity(scoreProbe, typed).total });
   }
 
   // Ties broken by id so the order is stable across runs; the `tie` verdict is what tells a caller

@@ -30215,6 +30215,58 @@ function extractWithSuppressed(sourceId, text, rules = DEFAULT_RULES) {
   return { relations: out, suppressed };
 }
 
+// src/extract/acronym.ts
+function acronymsIn(text) {
+  const out = [];
+  for (const raw of text.split(/\s+/)) {
+    const t = raw.replace(/[^A-Za-z0-9]/g, "");
+    if (t.length >= 2 && /^[A-Z0-9]+$/.test(t) && /[A-Z]/.test(t))
+      out.push(t);
+  }
+  return out;
+}
+function initialismSpan(short, long) {
+  const s = short.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (s.length < 2)
+    return null;
+  const words = long.toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/[\s-]+/).filter(Boolean);
+  if (words.length === 0)
+    return null;
+  for (let start = 0;start < words.length; start++) {
+    if (!words[start].startsWith(s[0]))
+      continue;
+    let si = 1;
+    let last = start;
+    for (let wi = start;wi < words.length && si < s.length; wi++) {
+      const w = words[wi];
+      const from = wi === start ? 1 : 0;
+      for (let ci = from;ci < w.length && si < s.length; ci++) {
+        if (w[ci] === s[si]) {
+          si++;
+          last = wi;
+        }
+      }
+      if (si < s.length && wi + 1 < words.length && words[wi + 1].startsWith(s[si])) {
+        si++;
+        last = wi + 1;
+      }
+    }
+    if (si === s.length)
+      return words.slice(start, last + 1);
+  }
+  return null;
+}
+function expandAgainst(text, long) {
+  let out = text;
+  for (const a of acronymsIn(text)) {
+    const span = initialismSpan(a, long);
+    if (span === null)
+      continue;
+    out = out.replace(new RegExp(`\\b${a}\\b`, "g"), span.join(" "));
+  }
+  return out;
+}
+
 // src/extract/link.ts
 var MENTION_PROBE_ID = "(mention)";
 var LINK_WEAK_MARGIN = 0.1;
@@ -30278,7 +30330,9 @@ function link(mention, records, opts = {}) {
       continue;
     const recType = inferType(r.name) ?? r.type;
     const typed = recType === undefined ? { id: r.id, name: r.name } : { id: r.id, name: r.name, type: recType };
-    scored.push({ id: r.id, name: r.name, score: similarity(probe, typed).total });
+    const expanded = expandAgainst(probe.name, r.name);
+    const scoreProbe = expanded === probe.name ? probe : mentionType === undefined ? { id: probe.id, name: expanded } : { id: probe.id, name: expanded, type: mentionType };
+    scored.push({ id: r.id, name: r.name, score: similarity(scoreProbe, typed).total });
   }
   scored.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const top = scored[0];
