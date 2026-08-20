@@ -51,3 +51,35 @@ describe("toolchain", () => {
     }
   });
 });
+
+describe('no source file contains a NUL byte', () => {
+  // Found 2026-08-20 while mutating eval/extract-metrics.ts: a mutation that should have turned a
+  // test red turned nothing red, and the reason was that the pattern it searched for was not in the
+  // file — two spaces inside a template literal were NUL bytes. `grep` reports such a file as
+  // "Binary file matches" and shows nothing, `file` calls it data, and the suite passes throughout,
+  // because NUL is a perfectly valid character in a JS string. A second NUL was then found in
+  // src/extract/link.ts, shipped in Phase 10.
+  //
+  // This is the hazard the monorepo constitution already documents for the memory store — records
+  // are NUL-joined, so text tools classify them as binary and skip them silently. It had never been
+  // checked for source.
+  const files = [...new Bun.Glob('**/*.ts').scanSync({ cwd: join(import.meta.dir, '..'), absolute: true })]
+    .filter((f) => !f.includes('node_modules'));
+
+  test('the sweep really did find files to check', () => {
+    expect(files.length).toBeGreaterThan(30);
+  });
+
+  test('every .ts file is free of NUL bytes', () => {
+    const dirty = files
+      .filter((f) => readFileSync(f).includes(0))
+      .map((f) => f.slice(f.lastIndexOf('/engine/') + 1));
+    expect(dirty).toEqual([]);
+  });
+
+  test('and the check can see a NUL when one is present', () => {
+    // Anti-vacuity: proving the detector works without corrupting a real file.
+    expect(Buffer.from('a\x00b', 'binary').includes(0)).toBe(true);
+    expect(Buffer.from('ab', 'binary').includes(0)).toBe(false);
+  });
+});

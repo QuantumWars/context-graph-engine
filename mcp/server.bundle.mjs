@@ -30093,8 +30093,9 @@ function extract(sourceId, text, rules = DEFAULT_RULES) {
 }
 
 // src/extract/link.ts
+var MENTION_PROBE_ID = "(mention)";
 function link(mention, records, opts = {}) {
-  const probe = { id: "\x00mention", name: mention, type: opts.type ?? "" };
+  const probe = { id: MENTION_PROBE_ID, name: mention, type: opts.type ?? "" };
   const keys = blockKeys(probe, { phonetic: true });
   const scored = [];
   const excluded = new Set(opts.exclude ?? []);
