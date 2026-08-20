@@ -6,13 +6,19 @@ you should not have to ask anyone what happened.
 
 ## Status
 
-**Phases 0–16 closed.** Phase 5 reopened the build for the item the post-mortem named as the
+**Phases 0–17 closed.** Phase 5 reopened the build for the item the post-mortem named as the
 largest gap, and the harness rejected a shipped constant on its first run. Post-mortem: `POSTMORTEM.md`. The ten standing rules moved into
 `engine/CLAUDE.md`.
 
 Phase 8 wired entity resolution into the store, which was the last component with no caller.
 Both defects it found were found by **running the CLI**, not by the suite — including one in the
 error message of the guard the phase existed to build.
+
+Phase 17 closed the abbreviation gap with Schwartz & Hearst's matching rule — every character of the
+short form in order, the first beginning a word, characters allowed inside a word so the paper's own
+`GNAT` case still works. Expansion is per record, so a short form cannot lift a record that does not
+spell it out. No dictionary, no weight, no constant. `abbreviation` 1/2 → 2/2 and Top-1 → 94.1%, and
+the re-sweep `DEC-018` requires left `LINK_WEAK_MARGIN` unchanged.
 
 Phase 16 built the type awareness Phase 15 prescribed, and **the prescription was wrong**. Type
 inference works and did not fix either target case, because both are *within-type* near-misses — a
@@ -83,6 +89,7 @@ copying it would have rebuilt the erasure hole `DEC-004` closed.
 | 14 | — | Polarity: negation, hedging and counterfactuals | **closed 2026-08-20 — 431 tests; precision 66.7% → 100%, silence → 100%** |
 | 15 | — | The linking reject option | **closed 2026-08-20 — 436 tests; NIL 14.3% → 71.4%, Top-1 unchanged** |
 | 16 | — | Type awareness for nil-near | **closed 2026-08-20 — 438 tests; NIL → 85.7%; the Phase 15 diagnosis was refuted** |
+| 17 | — | Abbreviations | **closed 2026-08-20 — 455 tests; abbreviation 1/2 → 2/2, Top-1 → 94.1%** |
 
 ## The method
 
@@ -117,6 +124,7 @@ Those are `DEC-002` through `DEC-005` and they were made in Phase 0.
 | `DEC-016` | A relation is emitted only when its clause asserts it; scope is a clause, not a window |
 | `DEC-017` | Linking gains a `weak` verdict and one calibrated constant, and still never rejects — amends `DEC-014` |
 | `DEC-018` | A mention's type comes from its head noun; `weak` is a margin, not a score — supersedes `DEC-017`'s constant |
+| `DEC-019` | An acronym expands per record, and only against a record whose own name supports it |
 
 ## Phase 1 — the five algorithms
 
