@@ -59,6 +59,7 @@ const USAGE = `${B}context graph engine${O}
   ${B}engine confirm${O} <id> --n <i> --from <id> --to <id> [--note <s>]
                                                turn proposal #i into an edge, carrying the span
                                                it was read from. You choose the endpoints.
+  ${B}engine refers${O}  <phrase...> [--limit 5]        which records a phrase might refer to
   ${B}engine evidence${O} <edge-id>                 resolve an edge's span back to the text now
   ${B}engine verify${O}                           check the whole chain
   ${B}engine log${O}      [--raw]                 list the records
@@ -88,7 +89,7 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const known = ['record', 'link', 'retract', 'purge', 'at', 'why', 'find', 'suggest', 'merge', 'extract', 'confirm', 'evidence', 'verify', 'log'];
+  const known = ['record', 'link', 'retract', 'purge', 'at', 'why', 'find', 'suggest', 'merge', 'extract', 'confirm', 'refers', 'evidence', 'verify', 'log'];
   if (!known.includes(args.cmd)) {
     console.error(`${R}error${O}: unknown command ${JSON.stringify(args.cmd)}\n${D}known: ${known.join(', ')}${O}\n`);
     return 2;
@@ -193,7 +194,25 @@ async function main(): Promise<number> {
         console.log(`  subject  ${JSON.stringify(p.subjectText)}`);
         console.log(`  object   ${JSON.stringify(p.objectText)}`);
         console.log(`  ${Y}stated by${O} ${JSON.stringify(p.triggerText)}`);
-        console.log(`  ${D}to accept: engine confirm ${id} --n ${i} --from <record> --to <record>${O}`);
+        // 3 is a DISPLAY cap chosen here, at the surface that displays it — DEC-014 keeps the
+        // number out of the linker, because it shortens a list rather than deciding an identity.
+        for (const [role, lr] of [['subject', p.subjectLink], ['object', p.objectLink]] as const) {
+          const top = lr.candidates.slice(0, 3);
+          if (top.length === 0) { console.log(`  ${D}${role} → no candidate records${O}`); continue; }
+          const m = lr.margin === null ? '' : `  ${D}margin ${lr.margin.toFixed(3)}${O}`;
+          console.log(`  ${D}${role} → ${lr.verdict}${O}${m}`);
+          for (const c of top) console.log(`      ${c.score.toFixed(3)}  ${c.id}`);
+        }
+        // Pre-fill an endpoint ONLY when there is exactly one candidate. That is a fact about the
+        // list, not a threshold — DEC-014 forbids one. Filling in rank 1 from an ambiguous list
+        // would put the engine's guess on the command line the caller runs, which is the very
+        // thing "reports, never decides" exists to prevent: the margin printed two lines above
+        // does not survive a copy-paste.
+        const only = (lr: typeof p.subjectLink): string =>
+          lr.candidates.length === 1 ? (lr.candidates[0] as { id: string }).id : '<record>';
+        const guessFrom = only(p.subjectLink);
+        const guessTo = only(p.objectLink);
+        console.log(`  ${D}to accept: engine confirm ${id} --n ${i} --from ${guessFrom} --to ${guessTo}${O}`);
       });
       console.log(`\n${D}Nothing was written. These say what the TEXT states; they do not say which${O}`);
       console.log(`${D}records the subject and object are — nothing here recognises entities, so you${O}`);
@@ -220,6 +239,17 @@ async function main(): Promise<number> {
       console.log(`${G}confirmed${O} ${from} --${p.predicate}--> ${to}  seq=${rec.seq}`);
       console.log(`${D}  evidence: ${JSON.stringify(p.triggerText)} in ${id} [${p.rule}]${O}`);
       console.log(`${D}  the edge stores offsets, not that text — purge ${id} and the evidence goes with it.${O}`);
+      return 0;
+    }
+    case 'refers': {
+      const phrase = args.positional.join(' ');
+      if (phrase === '') { console.error(`${R}error${O}: give a phrase`); return 2; }
+      const r = store.linkMention(phrase, { limit: Number(str('limit') ?? '5') });
+      console.log(`${B}${JSON.stringify(r.mention)}${O}  ${r.verdict}${r.margin === null ? '' : `  ${D}margin ${r.margin.toFixed(3)}${O}`}`);
+      if (r.candidates.length === 0) { console.log(`  ${D}no record shares enough with that phrase to be a candidate${O}`); return 0; }
+      for (const c of r.candidates) console.log(`  ${c.score.toFixed(3)}  ${B}${c.id}${O}  ${D}${c.name.slice(0, 50)}${O}`);
+      console.log(`\n${D}Ranked, not decided. No threshold was applied — the margin is the gap to the${O}`);
+      console.log(`${D}runner-up, and a small one means rank 1 is not an answer.${O}`);
       return 0;
     }
     case 'evidence': {

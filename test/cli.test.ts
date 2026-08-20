@@ -137,3 +137,65 @@ describe('the workspace boundary is enforced at the CLI', () => {
     rmSync(other, { recursive: true, force: true });
   });
 });
+
+describe('Phase 10 — linking reports, and the command line does not decide for you', () => {
+  function seedThree(): void {
+    run('record', 'd-friday', '--kind', 'decision', '--text', 'we stopped shipping on fridays');
+    run('record', 'd-gate', '--kind', 'decision', '--text', 'we added a pre-deploy gate');
+    run('record', 'note-1', '--text', 'The friday deploy caused a checkout outage.');
+  }
+
+  test('refers ranks candidates and prints the margin', () => {
+    seedThree();
+    const r = run('refers', 'pre-deploy', 'gate');
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('ranked');
+    expect(r.out).toContain('margin');
+    expect(r.out).toContain('d-gate');
+    expect(r.out).toContain('Ranked, not decided');
+  });
+
+  test('a phrase nothing matches says no_candidates rather than offering a poor match', () => {
+    seedThree();
+    const r = run('refers', 'quantum', 'tunnelling');
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('no_candidates');
+    expect(r.out).not.toContain('d-gate');
+  });
+
+  test('extract shows candidate endpoints with their scores', () => {
+    seedThree();
+    const r = run('extract', 'note-1');
+    expect(r.out).toContain('subject → ranked');
+    expect(r.out).toContain('d-friday');
+  });
+
+  test('AN AMBIGUOUS ENDPOINT IS NOT PRE-FILLED into the command line', () => {
+    // The margin printed above the suggestion does not survive a copy-paste. Filling rank 1 into
+    // the command a caller runs would put the engine's guess into their assertion, which is what
+    // DEC-014 exists to prevent. Only a single-candidate list — a fact, not a threshold — is filled.
+    seedThree();
+    const r = run('extract', 'note-1');
+    const line = r.out.split('\n').find((l) => l.includes('to accept:'))!;
+    expect(line).toContain('--from <record>');
+    // And the list it refused to pick from really did have more than one candidate.
+    expect(r.out).toContain('d-gate');
+    expect(r.out).toContain('d-friday');
+  });
+
+  test('a lone candidate IS pre-filled, because there is nothing to choose between', () => {
+    run('record', 'only-one', '--text', 'parking permit renewal happens yearly');
+    run('record', 'src', '--text', 'parking permit renewal caused a queue');
+    const r = run('extract', 'src');
+    const line = r.out.split('\n').find((l) => l.includes('to accept:'))!;
+    expect(line).toContain('--from only-one');
+  });
+
+  test('refers writes nothing', () => {
+    seedThree();
+    const before = readFileSync(logPath(), 'utf8');
+    run('refers', 'pre-deploy', 'gate');
+    run('extract', 'note-1');
+    expect(readFileSync(logPath(), 'utf8')).toBe(before);
+  });
+});

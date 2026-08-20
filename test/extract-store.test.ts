@@ -160,3 +160,47 @@ describe('Task 9.4 — purging the source erases the evidence, and leaves no cop
     expect(s.evidenceFor('no-such-edge')).toBeNull();
   });
 });
+
+describe('Task 10.3 — proposals carry candidate endpoints, and still write nothing', () => {
+  test('a proposal offers ranked candidates for its subject, excluding the record it was read from', async () => {
+    const s = await seeded();
+    const p = s.propose('note-1')[0]!;
+    // The phrase is literally in note-1, so without the exclusion note-1 would rank first and the
+    // caller would be offered the record they already have.
+    expect(p.subjectLink.candidates.map((c) => c.id)).not.toContain('note-1');
+    expect(p.subjectLink.candidates.length).toBeGreaterThan(0);
+    expect(p.subjectLink.margin).not.toBeNull();
+  });
+
+  test('a phrase matching nothing says no_candidates rather than offering a poor match', async () => {
+    const s = await seeded();
+    await s.append({ kind: 'node', id: 'odd', content: { text: 'Quantum tunnelling caused zeta decay.' } });
+    const p = s.propose('odd')[0]!;
+    expect(p.subjectLink.verdict).toBe('no_candidates');
+    expect(p.subjectLink.candidates).toEqual([]);
+  });
+
+  test('computing candidates still writes nothing', async () => {
+    const s = await seeded();
+    const before = readFileSync(paths.log, 'utf8');
+    const ps = s.propose('note-1');
+    expect(ps[0]!.subjectLink.candidates.length).toBeGreaterThan(0);   // it really did the work
+    expect(readFileSync(paths.log, 'utf8')).toBe(before);
+  });
+
+  test('a proposal alone cannot produce an edge — confirm still needs both endpoints named', async () => {
+    const s = await seeded();
+    const edgesBefore = s.listEdges().length;
+    s.propose('note-1');
+    expect(s.listEdges()).toHaveLength(edgesBefore);
+    // And `confirm`'s signature requires them: calling it needs two ids the caller supplies.
+    expect(Store.prototype.confirm.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test('linkMention never emits an identity claim', async () => {
+    const s = await seeded();
+    const r = s.linkMention('the friday deploy');
+    const serialised = JSON.stringify(r);
+    for (const forbidden of ['same_as', 'sameAs', 'confidence']) expect(serialised).not.toContain(forbidden);
+  });
+});

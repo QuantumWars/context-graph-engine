@@ -30091,6 +30091,37 @@ function extract(sourceId, text, rules = DEFAULT_RULES) {
   return out;
 }
 
+// src/extract/link.ts
+function link(mention, records, opts = {}) {
+  const probe = { id: "\x00mention", name: mention, type: opts.type ?? "" };
+  const keys = blockKeys(probe, { phonetic: true });
+  const scored = [];
+  const excluded = new Set(opts.exclude ?? []);
+  for (const r of records) {
+    if (excluded.has(r.id))
+      continue;
+    if (opts.type !== undefined && r.type !== opts.type)
+      continue;
+    let shares = false;
+    for (const k of blockKeys(r, { phonetic: true })) {
+      if (keys.has(k)) {
+        shares = true;
+        break;
+      }
+    }
+    if (!shares)
+      continue;
+    scored.push({ id: r.id, name: r.name, score: similarity(probe, r).total });
+  }
+  scored.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const top = scored[0];
+  const next = scored[1];
+  const margin = top === undefined || next === undefined ? null : top.score - next.score;
+  const verdict = top === undefined ? "no_candidates" : margin === 0 ? "tie" : "ranked";
+  const capped = opts.limit === undefined ? scored : scored.slice(0, opts.limit);
+  return { mention, verdict, candidates: capped, margin };
+}
+
 // src/resolve/cluster.ts
 function cluster(ids, pairs, minScore) {
   const parent = new Map;
@@ -30374,12 +30405,19 @@ class Store {
     if (text === null)
       return [];
     const found = rules === undefined ? extract(id, text) : extract(id, text, rules);
-    return found.map((e) => ({
-      ...e,
-      subjectText: quoteOf(e.subject, rec),
-      objectText: quoteOf(e.object, rec),
-      triggerText: quoteOf(e.trigger, rec)
-    }));
+    const pool = this.linkables();
+    return found.map((e) => {
+      const subjectText = quoteOf(e.subject, rec);
+      const objectText = quoteOf(e.object, rec);
+      return {
+        ...e,
+        subjectText,
+        objectText,
+        triggerText: quoteOf(e.trigger, rec),
+        subjectLink: link(subjectText ?? "", pool, { exclude: [id] }),
+        objectLink: link(objectText ?? "", pool, { exclude: [id] })
+      };
+    });
   }
   async confirm(p, from, to, note = null) {
     return withLoggedMutation(this.paths, (current) => {
@@ -30410,6 +30448,9 @@ class Store {
       this.records = [...current, rec];
       return { append: [rec], value: rec };
     });
+  }
+  linkMention(mention, opts = {}) {
+    return link(mention, this.linkables(), opts);
   }
   evidenceFor(edgeId) {
     const edge = this.byId(edgeId);
@@ -30485,6 +30526,9 @@ class Store {
   }
   verify() {
     return verifyChain(this.records);
+  }
+  linkables() {
+    return this.live().filter((r) => r.kind === "node" || r.kind === "decision").map((r) => ({ id: r.id, name: nameOf(r.content), type: r.kind })).filter((c) => c.name !== "");
   }
   live() {
     return this.records.filter((r) => r.content !== null && r.kind !== "retraction" && r.kind !== "tombstone" && r.kind !== "merge");
@@ -30955,7 +30999,9 @@ server.registerTool("extract", {
         rule: p.rule,
         subject: p.subjectText,
         object: p.objectText,
-        statedBy: p.triggerText
+        statedBy: p.triggerText,
+        subjectCandidates: { verdict: p.subjectLink.verdict, margin: p.subjectLink.margin, top: p.subjectLink.candidates.slice(0, 3) },
+        objectCandidates: { verdict: p.objectLink.verdict, margin: p.objectLink.margin, top: p.objectLink.candidates.slice(0, 3) }
       })),
       wroteNothing: true,
       note: "Nothing was written. Endpoints are yours to choose \u2014 this says what the text states, " + "not which records those phrases refer to."
@@ -30991,6 +31037,28 @@ server.registerTool("confirm", {
       readFrom: id,
       statedBy: p.triggerText,
       note: "The edge stores offsets, not the quoted text."
+    });
+  } catch (e) {
+    return fail(e);
+  }
+});
+server.registerTool("refers", {
+  title: "Which records a phrase might refer to",
+  description: "Rank the records a phrase could be referring to. THIS IS ADVISORY AND WRITES NOTHING. No " + 'threshold decides anything: the verdict is "no_candidates" when nothing is close enough to ' + 'even be scored, "tie" when the top two score identically, and "ranked" otherwise. Read the ' + "margin \u2014 the gap between the top two \u2014 before treating rank 1 as the answer, because a top " + "score of 0.9 against a runner-up of 0.88 is ambiguous however high it looks. This never " + "asserts that two things are the same; that is the merge tool, and a person decides it.",
+  inputSchema: {
+    mention: exports_external.string().min(1).describe("the phrase to look up"),
+    limit: exports_external.number().int().min(1).max(50).default(5).describe("display cap, not a decision")
+  }
+}, async ({ mention, limit }) => {
+  try {
+    const s = await Store.open(paths());
+    const r = s.linkMention(mention, { limit });
+    return ok({
+      mention: r.mention,
+      verdict: r.verdict,
+      margin: r.margin,
+      candidates: r.candidates,
+      note: "Ranked, not decided. No threshold was applied."
     });
   } catch (e) {
     return fail(e);

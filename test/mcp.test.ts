@@ -147,6 +147,12 @@ describe('tools/list — over stdio, against the bundle', () => {
     expect(known).not.toBeNull();
     const verbs = [...known![1]!.matchAll(/'([a-z-]+)'/g)].map((m) => m[1] as string).sort();
     expect(verbs.length).toBeGreaterThan(5);                       // anti-vacuity on the parse
+
+    // A verb listed twice is a verb whose second `case` is unreachable: a switch takes the first
+    // match and neither tsc nor the linter says a word. Phase 10 added `link` to a list that
+    // already had it, and the new branch was dead code that nothing would have reported.
+    expect(verbs).toEqual([...new Set(verbs)].sort());
+
     expect(names).toEqual(verbs);
 
     for (const t of tools) {

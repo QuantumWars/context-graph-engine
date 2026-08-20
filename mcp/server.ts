@@ -253,6 +253,9 @@ server.registerTool('extract', {
       proposals: proposals.map((p, i) => ({
         index: i, predicate: p.predicate, rule: p.rule,
         subject: p.subjectText, object: p.objectText, statedBy: p.triggerText,
+        // Candidate endpoints, RANKED AND NOT DECIDED. Rank 1 is not the answer; check the margin.
+        subjectCandidates: { verdict: p.subjectLink.verdict, margin: p.subjectLink.margin, top: p.subjectLink.candidates.slice(0, 3) },
+        objectCandidates: { verdict: p.objectLink.verdict, margin: p.objectLink.margin, top: p.objectLink.candidates.slice(0, 3) },
       })),
       wroteNothing: true,
       note: 'Nothing was written. Endpoints are yours to choose — this says what the text states, '
@@ -289,6 +292,30 @@ server.registerTool('confirm', {
       edge: r.id, seq: r.seq, predicate: p.predicate, rule: p.rule,
       readFrom: id, statedBy: p.triggerText,
       note: 'The edge stores offsets, not the quoted text.',
+    });
+  } catch (e) { return fail(e); }
+});
+
+server.registerTool('refers', {
+  title: 'Which records a phrase might refer to',
+  description:
+    'Rank the records a phrase could be referring to. THIS IS ADVISORY AND WRITES NOTHING. No ' +
+    'threshold decides anything: the verdict is "no_candidates" when nothing is close enough to ' +
+    'even be scored, "tie" when the top two score identically, and "ranked" otherwise. Read the ' +
+    'margin — the gap between the top two — before treating rank 1 as the answer, because a top ' +
+    'score of 0.9 against a runner-up of 0.88 is ambiguous however high it looks. This never ' +
+    'asserts that two things are the same; that is the merge tool, and a person decides it.',
+  inputSchema: {
+    mention: z.string().min(1).describe('the phrase to look up'),
+    limit: z.number().int().min(1).max(50).default(5).describe('display cap, not a decision'),
+  },
+}, async ({ mention, limit }) => {
+  try {
+    const s = await Store.open(paths());
+    const r = s.linkMention(mention, { limit });
+    return ok({
+      mention: r.mention, verdict: r.verdict, margin: r.margin, candidates: r.candidates,
+      note: 'Ranked, not decided. No threshold was applied.',
     });
   } catch (e) { return fail(e); }
 });

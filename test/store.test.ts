@@ -16,7 +16,7 @@ import { readLog } from '../src/store/log';
  */
 const READ_PATHS = [
   'contentOf', 'resolveId', 'getNode', 'listNodes', 'getDecision', 'listDecisions',
-  'getEdge', 'listEdges', 'stateAt', 'why', 'searchable', 'propose', 'evidenceFor',
+  'getEdge', 'listEdges', 'stateAt', 'why', 'searchable', 'propose', 'linkMention', 'evidenceFor',
 ] as const;
 
 /** Does this read path still surface `id`? One probe per path, so all ten are really exercised. */
@@ -38,6 +38,14 @@ const probes: Record<(typeof READ_PATHS)[number], (s: Store, id: string) => bool
   // readable: propose can only run over text it can read, and evidenceFor resolves a span into it.
   // Both surface a record by reading its TEXT, so both stop surfacing it the moment it is purged.
   propose: (s, id) => s.propose(id).length > 0,
+  // Surfaces a record by NAME rather than by id: the pool is built from live records' text, so a
+  // purged record leaves the pool and can no longer be a candidate for anything.
+  linkMention: (s, id) => {
+    const name = s.contentOf(id);
+    const text = name !== null && typeof name === 'object' && !Array.isArray(name)
+      ? (name as Record<string, unknown>)['text'] : undefined;
+    return typeof text === 'string' && s.linkMention(text).candidates.some((c) => c.id === id);
+  },
   evidenceFor: (s, id) => s.listEdges().some((e) => {
     const ev = s.evidenceFor(e.id);
     return ev !== null && ev.source === id && ev.quote.ok;
@@ -122,7 +130,7 @@ describe('Task 2.1 — one store per fact, across a save and a reload', () => {
     const targets: Record<string, string> = {
       contentOf: 'd1', resolveId: 'd1', getNode: 'n1', listNodes: 'n1', getDecision: 'd1',
       listDecisions: 'd1', getEdge: 'e1', listEdges: 'e1', stateAt: 'd1',
-      why: 'd2', searchable: 'd1', propose: 'src1', evidenceFor: 'src1',
+      why: 'd2', searchable: 'd1', propose: 'src1', linkMention: 'src1', evidenceFor: 'src1',
     };
     expect(Object.keys(targets).sort()).toEqual([...READ_PATHS].sort()); // anti-vacuity
 

@@ -23,6 +23,7 @@ import { assertConsistent, type RetrievalDecision } from '../retrieval/channels'
 import { block } from '../resolve/blocking';
 import { extract, type Extracted, type Rule } from '../extract/rules';
 import { resolveSpan, type Span } from '../extract/span';
+import { link, type LinkResult } from '../extract/link';
 import { cluster, merged, type Cluster } from '../resolve/cluster';
 import type { Candidate } from '../resolve/similarity';
 import type { RecordKind, RecordMeta, RecordMetaInput, SpanMeta, StoredRecord } from './records';
@@ -84,6 +85,13 @@ export interface Proposal extends Extracted {
   readonly subjectText: string | null;
   readonly objectText: string | null;
   readonly triggerText: string | null;
+  /**
+   * Records the subject and object phrases might refer to, ranked. `DEC-014`: these are candidates
+   * with scores and a margin, never a decision — `confirm` still requires the caller to name both
+   * endpoints. The source record is excluded, because a phrase read out of it matches it trivially.
+   */
+  readonly subjectLink: LinkResult;
+  readonly objectLink: LinkResult;
 }
 
 /** What an edge's extraction provenance resolves to now — never what it resolved to when written. */
@@ -437,12 +445,18 @@ export class Store {
     if (text === null) return [];
 
     const found = rules === undefined ? extract(id, text) : extract(id, text, rules);
-    return found.map((e) => ({
-      ...e,
-      subjectText: quoteOf(e.subject, rec),
-      objectText: quoteOf(e.object, rec),
-      triggerText: quoteOf(e.trigger, rec),
-    }));
+    const pool = this.linkables();
+    return found.map((e) => {
+      const subjectText = quoteOf(e.subject, rec);
+      const objectText = quoteOf(e.object, rec);
+      return {
+        ...e,
+        subjectText, objectText,
+        triggerText: quoteOf(e.trigger, rec),
+        subjectLink: link(subjectText ?? '', pool, { exclude: [id] }),
+        objectLink: link(objectText ?? '', pool, { exclude: [id] }),
+      };
+    });
   }
 
   /**
@@ -491,6 +505,19 @@ export class Store {
       this.records = [...current, rec];
       return { append: [rec], value: rec };
     });
+  }
+
+  /**
+   * Which records a phrase might refer to, ranked.
+   *
+   * `DEC-014`: this reports and never decides. The verdicts are threshold-free facts —
+   * `no_candidates` when nothing shares a block key, `tie` when the top two score identically,
+   * `ranked` otherwise — and the margin between the top two is reported as a number rather than
+   * compared against one. Nothing here emits an identity claim; that is `merge`, and `DEC-012`
+   * requires a caller to assert it.
+   */
+  linkMention(mention: string, opts: { readonly limit?: number; readonly exclude?: readonly string[] } = {}): LinkResult {
+    return link(mention, this.linkables(), opts);
   }
 
   /**
@@ -593,6 +620,14 @@ export class Store {
   }
 
   /** Records that still carry content — the basis of every content read path above. */
+  /** Live named records as linking candidates. The same pool `suggest` clusters over. */
+  private linkables(): readonly Candidate[] {
+    return this.live()
+      .filter((r) => r.kind === 'node' || r.kind === 'decision')
+      .map((r) => ({ id: r.id, name: nameOf(r.content), type: r.kind }))
+      .filter((c) => c.name !== '');
+  }
+
   private live(): readonly StoredRecord[] {
     return this.records.filter(
       (r) => r.content !== null && r.kind !== 'retraction' && r.kind !== 'tombstone' && r.kind !== 'merge',
