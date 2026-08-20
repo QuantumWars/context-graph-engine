@@ -6,13 +6,20 @@ you should not have to ask anyone what happened.
 
 ## Status
 
-**Phases 0–11 closed.** Phase 5 reopened the build for the item the post-mortem named as the
+**Phases 0–12 closed.** Phase 5 reopened the build for the item the post-mortem named as the
 largest gap, and the harness rejected a shipped constant on its first run. Post-mortem: `POSTMORTEM.md`. The ten standing rules moved into
 `engine/CLAUDE.md`.
 
 Phase 8 wired entity resolution into the store, which was the last component with no caller.
 Both defects it found were found by **running the CLI**, not by the suite — including one in the
 error message of the guard the phase existed to build.
+
+Phase 12 gave linking the harness Phases 9 and 10 both closed without. Candidate generation loses
+nothing and ranking is 88.2%, but **the reject option scores 14.3%** and `nil-near` is 0 of 5 — the
+largest known defect in linking, now with a number on it. `DEC-014`'s margin claim was tested and
+survived: median margin 0.3154 when the top answer is right against 0.0048 when it is wrong.
+`DEC-014`'s own reversal condition — a labelled set that could calibrate a NIL threshold — is now
+met, and acting on it is an operator decision.
 
 Phase 11 acted on the measured comparison with `semantica`: the `suggest` default moved from 0.6 to
 0.7 (precision 4.4% → 100% at unchanged recall), the shared 0.9 score ceiling was named and guarded,
@@ -44,6 +51,7 @@ copying it would have rebuilt the erasure hole `DEC-004` closed.
 | 9 | — | Extraction with span provenance: spans, rules, propose/confirm | **closed 2026-08-20 — 347 tests; A-8 closed, the recon's list finished** |
 | 10 | — | Entity linking: mention → ranked candidate records | **closed 2026-08-20 — 372 tests; closed with NO new constant** |
 | 11 | — | What the Semantica comparison changed: threshold, ceiling, merged view | **closed 2026-08-20 — 383 tests; suggest default 0.6 → 0.7 on measurement** |
+| 12 | — | Evaluation harness for entity linking | **closed 2026-08-20 — 397 tests; Top-1 88.2%, NIL 14.3%** |
 
 ## The method
 
