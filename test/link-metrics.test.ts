@@ -165,9 +165,10 @@ describe('the labelled set itself', () => {
     expect(s.nil).toBe(7);
     expect(s.recallAtAny).toBe(17);           // candidate generation loses nothing
     expect(s.top1).toBe(15);
-    // Phase 15: the `weak` verdict took this from 1/7 to 5/7 without dropping a candidate.
-    expect(s.nilCorrect).toBe(5);
-    expect(s.weakButRight).toBe(2);           // the soft cost, and it is recoverable
+    // Phase 15 took this from 1/7 to 5/7 with a score threshold; Phase 16 switched to a margin
+    // and reached 6/7 while halving the soft cost. Neither dropped a candidate.
+    expect(s.nilCorrect).toBe(6);
+    expect(s.weakButRight).toBe(1);           // the soft cost, and it is recoverable
     expect(marginSplit(judged).separation).toBeGreaterThan(0);
   });
 });

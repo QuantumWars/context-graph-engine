@@ -183,13 +183,18 @@ describe('Phase 10 — linking reports, and the command line does not decide for
   });
 
   test('refers explains a weak result rather than printing a bare verdict', () => {
+    // Needs a store where an unrelated phrase draws MORE THAN ONE candidate, because `weak` is a
+    // margin and a lone candidate has no margin to be small. With three records "the cafeteria
+    // menu" drew exactly one and came back `ranked` at 0.051 — an artifact of the fixture, and the
+    // limitation DEC-018 states: in a store this small a lone weak candidate reads as confident.
     seedThree();
-    const r = run('refers', 'the', 'cafeteria', 'menu');
+    run('record', 'note-2', '--text', 'The tuesday deploy caused a login outage.');
+    run('record', 'note-3', '--text', 'The monday deploy caused a payments outage.');
+    const r = run('refers', 'the', 'wednesday', 'deploy', 'outage');
+    expect(r.out).toMatch(/weak|tie|no_candidates/);
     if (r.out.includes('weak')) {
       expect(r.out).toContain('nothing here matches well');
       expect(r.out).toContain('probably not the answer');
-    } else {
-      expect(r.out).toContain('no_candidates');
     }
   });
 

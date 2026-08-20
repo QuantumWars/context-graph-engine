@@ -30217,9 +30217,48 @@ function extractWithSuppressed(sourceId, text, rules = DEFAULT_RULES) {
 
 // src/extract/link.ts
 var MENTION_PROBE_ID = "(mention)";
-var LINK_WEAK_SCORE = 0.3;
+var LINK_WEAK_MARGIN = 0.1;
+var TYPE_NOUNS = [
+  "service",
+  "services",
+  "team",
+  "teams",
+  "rota",
+  "project",
+  "projects",
+  "rewrite",
+  "migration",
+  "document",
+  "doc",
+  "docs",
+  "runbook",
+  "policy",
+  "contract",
+  "review",
+  "report",
+  "postmortem",
+  "incident",
+  "outage",
+  "spike",
+  "failure",
+  "decision",
+  "gate",
+  "indexer",
+  "owner",
+  "workshop"
+];
+function inferType(text) {
+  const words = text.toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/\s+/).filter(Boolean);
+  for (let i = words.length - 1;i >= 0; i--) {
+    const w = words[i];
+    if (TYPE_NOUNS.includes(w))
+      return w.replace(/s$/, "");
+  }
+  return;
+}
 function link(mention, records, opts = {}) {
-  const probe = { id: MENTION_PROBE_ID, name: mention, type: opts.type ?? "" };
+  const mentionType = opts.type ?? inferType(mention);
+  const probe = mentionType === undefined ? { id: MENTION_PROBE_ID, name: mention } : { id: MENTION_PROBE_ID, name: mention, type: mentionType };
   const keys = blockKeys(probe, { phonetic: true });
   const scored = [];
   const excluded = new Set(opts.exclude ?? []);
@@ -30237,13 +30276,15 @@ function link(mention, records, opts = {}) {
     }
     if (!shares)
       continue;
-    scored.push({ id: r.id, name: r.name, score: similarity(probe, r).total });
+    const recType = inferType(r.name) ?? r.type;
+    const typed = recType === undefined ? { id: r.id, name: r.name } : { id: r.id, name: r.name, type: recType };
+    scored.push({ id: r.id, name: r.name, score: similarity(probe, typed).total });
   }
   scored.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const top = scored[0];
   const next = scored[1];
   const margin = top === undefined || next === undefined ? null : top.score - next.score;
-  const verdict = top === undefined ? "no_candidates" : margin === 0 ? "tie" : top.score < LINK_WEAK_SCORE ? "weak" : "ranked";
+  const verdict = top === undefined ? "no_candidates" : margin === 0 ? "tie" : (margin ?? 1) < LINK_WEAK_MARGIN ? "weak" : "ranked";
   const capped = opts.limit === undefined ? scored : scored.slice(0, opts.limit);
   return { mention, verdict, candidates: capped, margin };
 }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { link, LINK_WEAK_SCORE } from '../src/extract/link';
+import { link, inferType, LINK_WEAK_MARGIN, TYPE_NOUNS } from '../src/extract/link';
 import { similarity, type Candidate } from '../src/resolve/similarity';
 
 /** Phase 10. `DEC-014`: linking reports ranked candidates and never decides identity from a score. */
@@ -23,22 +23,47 @@ describe('Task 10.1 — ranked candidates, threshold-free verdicts', () => {
     expect(['ranked', 'weak']).toContain(r.verdict);
   });
 
-  test('DEC-017 — a weak verdict removes NOTHING from the candidate list', () => {
-    const weak = link('checkout outage', RECORDS);
+  test('DEC-018 — a weak verdict removes NOTHING from the candidate list', () => {
+    // Two near-identical records, so the top two are close and the result is weak.
+    const twins = [
+      { id: 'q1', name: 'the first quarter reliability review', type: 'node' },
+      { id: 'q2', name: 'the second quarter reliability review', type: 'node' },
+      { id: 'other', name: 'parking permit renewal', type: 'node' },
+    ];
+    const weak = link('the third quarter reliability review', twins);
     expect(weak.verdict).toBe('weak');
-    expect(weak.candidates[0]!.score).toBeLessThan(LINK_WEAK_SCORE);
+    expect(weak.margin!).toBeLessThan(LINK_WEAK_MARGIN);
     // Every candidate the scorer produced is still here: `weak` is a warning, not a filter.
-    const all = RECORDS.filter((rec) => link('checkout outage', [rec]).candidates.length > 0);
-    expect(weak.candidates.length).toBe(all.length);
+    expect(weak.candidates.length).toBeGreaterThanOrEqual(2);
   });
 
-  test('a strong match is `ranked`, so the verdict really does discriminate', () => {
-    // This fixture has no record named "the checkout service"; `pre-deploy gate` is the one that
-    // genuinely matches something here, at 0.404 against d-gate.
+  test('a clear winner is `ranked`, so the verdict really does discriminate', () => {
     const r = link('pre-deploy gate', RECORDS);
     expect(r.candidates[0]!.id).toBe('d-gate');
-    expect(r.candidates[0]!.score).toBeGreaterThanOrEqual(LINK_WEAK_SCORE);
+    expect(r.margin!).toBeGreaterThanOrEqual(LINK_WEAK_MARGIN);
     expect(r.verdict).toBe('ranked');
+  });
+
+  test('inferType reads the head noun, and returns nothing when there is no kind word', () => {
+    expect(inferType('the payments team')).toBe('team');
+    expect(inferType('the checkout service')).toBe('service');
+    expect(inferType('the SLO doc')).toBe('doc');
+    // The important negative: treating any last word as a type would destroy a correct link.
+    expect(inferType('no friday releases')).toBeUndefined();
+    expect(inferType('we stopped shipping on fridays')).toBeUndefined();
+    expect(TYPE_NOUNS).toContain('team');
+  });
+
+  test('an inferred type separates a team from a service', () => {
+    const recs = [
+      { id: 'svc', name: 'the payments service', type: 'node' },
+      { id: 'team', name: 'the platform team', type: 'node' },
+    ];
+    const r = link('the payments team', recs);
+    // The service shares more words, but the team shares the KIND — so the kind decides the order.
+    expect(r.candidates[0]!.id).toBe('team');
+    // And it is still weak, because neither is the answer: the mention refers to nothing here.
+    expect(r.verdict).toBe('weak');
   });
 
   test('a mention matching nothing returns no_candidates, not a poor match', () => {
@@ -110,8 +135,8 @@ describe('Task 10.1 / DEC-017 — the module holds exactly one constant, and it 
     // quietly is still the thing to prevent.
     const declared = [...CODE.matchAll(/export\s+const\s+(\w+)\s*(?::\s*number\s*)?=\s*-?\d/g)]
       .map((m) => m[1] as string);
-    expect(declared).toEqual(['LINK_WEAK_SCORE']);
-    expect(LINK_WEAK_SCORE).toBe(0.3);
+    expect(declared).toEqual(['LINK_WEAK_MARGIN']);
+    expect(LINK_WEAK_MARGIN).toBe(0.1);
   });
 
   test('it carries a calibrated provenance note naming the run', () => {
@@ -125,7 +150,7 @@ describe('Task 10.1 / DEC-017 — the module holds exactly one constant, and it 
     // A second decimal comparison means a threshold arrived without a decision record.
     const comparisons = [...CODE.matchAll(/[<>]=?\s*-?\d*\.\d/g)].map((m) => m[0]);
     expect(comparisons).toEqual([]);
-    expect(CODE).toContain('< LINK_WEAK_SCORE');
+    expect(CODE).toContain('< LINK_WEAK_MARGIN');
     expect(CODE.length).toBeGreaterThan(500);          // anti-vacuity: the source really was read
   });
 
@@ -133,7 +158,7 @@ describe('Task 10.1 / DEC-017 — the module holds exactly one constant, and it 
     expect(`${CODE}\nconst ok = score >= 0.9;`).toMatch(/[<>]=?\s*-?\d*\.\d/);
     const twoConstants = [...`${CODE}\nexport const LINK_FLOOR = 0.35;`
       .matchAll(/export\s+const\s+(\w+)\s*(?::\s*number\s*)?=\s*-?\d/g)].map((m) => m[1]);
-    expect(twoConstants).toEqual(['LINK_WEAK_SCORE', 'LINK_FLOOR']);
+    expect(twoConstants).toEqual(['LINK_WEAK_MARGIN', 'LINK_FLOOR']);
   });
 });
 

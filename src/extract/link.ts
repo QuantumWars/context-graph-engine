@@ -39,38 +39,89 @@ import { similarity, type Candidate } from '../resolve/similarity';
 export const MENTION_PROBE_ID = '(mention)';
 
 /**
- * The score below which a top candidate is reported as `weak`.
+ * The gap to the runner-up below which a result is reported as `weak`.
  *
- * PROVENANCE: **calibrated**, 2026-08-20, by `eval/link-sweep.ts` over the 24-mention labelled set
- * in `eval/linking.ts`. Sweeping a hard reject:
+ * PROVENANCE: **calibrated**, 2026-08-20, by `eval/link-sweep.ts` over the 24-mention labelled set,
+ * evaluated as the FLAG it actually is rather than as a hard reject:
  *
- *     none (today)   kept 15/17  nil 0/7  total 62.5%
- *     score < 0.30   kept 13/17  nil 5/7  total 75.0%   <- best of twelve score cuts
- *     score < 0.34   kept 11/17  nil 6/7  total 70.8%
- *     margin < 0.05  kept 11/17  nil 5/7  total 66.7%   <- margin rules are all worse
+ *     rule                     NIL flagged   Top-1    soft cost
+ *     score  < 0.30  (Phase 15)      4/7     15/17        1
+ *     margin < 0.05                  5/7     15/17        1
+ *     margin < 0.10                  6/7     15/17        1     <- adopted
+ *     score < 0.30 or margin < 0.10  6/7     15/17        2
  *
- * 0.30 is the peak. **The populations overlap** — a correct answer scores as low as 0.081 and a NIL
- * as high as 0.495 — so no cut separates them, and this number is the best of a bad set rather than
- * a boundary between two things.
+ * **This supersedes `LINK_WEAK_SCORE` and it corrects a methodological error in Phase 15**, which
+ * swept every rule as a hard reject — where a margin rule drops six correct answers and looks
+ * hopeless — and then shipped a flag, where it drops none and wins. The sweep measured a design the
+ * code does not use. `eval/link-sweep.ts` now evaluates both.
  *
- * That is exactly why it labels instead of rejecting. A hard cut at 0.30 would have silenced two
- * correct answers, both rewordings: *"no friday releases"* at 0.081 and *"the follow the sun rota"*
- * at 0.293. Reporting `weak` and keeping every candidate costs neither, and still flags five of the
- * seven mentions that refer to nothing.
+ * A null margin — one candidate, nothing to compare against — counts as confident. On this set all
+ * three single-candidate mentions are correct answers and no NIL mention has exactly one candidate,
+ * so a score fallback added soft cost and caught nothing. **That is an assumption this set cannot
+ * test**, and it is the first thing to re-examine on a larger one.
  *
- * Recalibrate with `bun --cwd engine eval/link-sweep.ts` after any change to the scorer.
+ * Recalibrate with `bun --cwd engine eval/link-sweep.ts` after any change to the scorer. Phase 16
+ * changed one and this number moved; that is the rule working.
  */
-export const LINK_WEAK_SCORE = 0.3;
+export const LINK_WEAK_MARGIN = 0.1;
 
 /**
  * `no_candidates` — the generator returned nothing; the mention refers to nothing here.
  * `tie`          — the two best candidates score identically, so rank 1 is not an answer.
- * `weak`         — a candidate exists but scores below `LINK_WEAK_SCORE`. Most mentions that refer
- *                  to nothing land here, and so do a few real matches, so it is a warning and never
- *                  a rejection: every candidate is still returned.
+ * `weak`         — the top candidate is barely ahead of the runner-up. Six of the seven mentions
+ *                  that refer to nothing land here, and so does one real match, so it is a warning
+ *                  and never a rejection: every candidate is still returned.
  * `ranked`       — candidates are ordered; the caller decides, with the scores and margin to hand.
  */
 export type LinkVerdict = 'no_candidates' | 'tie' | 'weak' | 'ranked';
+
+/**
+ * Head nouns that name what KIND of thing a phrase refers to.
+ *
+ * The survey literature calls this **semantic type prediction**, and the constraint it feeds is
+ * blunt: if the mention is a person, a candidate that is a building is discarded. Phase 15 measured
+ * two mentions no threshold could reject — *"the payments team"* at 0.336 against `svc-payments`,
+ * and *"the third quarter reliability review"* at 0.495 against `q2-review` — and both are the same
+ * failure. A payments *service* exists and a payments *team* does not; the words are close and the
+ * things are different kinds.
+ *
+ * `semantica` has the constraint and cannot use it here: `entity_linker.py:392` filters on
+ * `entity.get("type") != entity_type`, and **the caller must already know the mention's type**.
+ * Nothing in that repository derives one from text. Our mentions arrive as raw phrases out of
+ * `extract`, so the type has to be inferred or the filter is unreachable.
+ *
+ * PROVENANCE: **declared placeholder.** Hand-written from the kinds of thing this engine's own
+ * records are — services, teams, documents, decisions, incidents, projects. Not a taxonomy and not
+ * derived from a corpus. What would calibrate it is a labelled set of mentions with their true
+ * types; `eval/linking.ts` has referents but not types. The measure until then is `nil-near` in
+ * `bun run --cwd engine eval:link`.
+ *
+ * **Only phrases ending in one of these are typed at all.** A phrase with no type noun is untyped,
+ * and an untyped side never causes a mismatch — that is deliberate: *"no friday releases"* ends in
+ * `releases`, which is not a kind of thing, and treating its last word as a type would destroy a
+ * correct link at 0.081.
+ */
+export const TYPE_NOUNS: readonly string[] = [
+  'service', 'services', 'team', 'teams', 'rota', 'project', 'projects', 'rewrite', 'migration',
+  'document', 'doc', 'docs', 'runbook', 'policy', 'contract', 'review', 'report', 'postmortem',
+  'incident', 'outage', 'spike', 'failure', 'decision', 'gate', 'indexer', 'owner', 'workshop',
+];
+
+/**
+ * The kind of thing a phrase names, from its head noun.
+ *
+ * English puts the head of a simple noun phrase last, so the last word is checked first and then
+ * the rest — `the SLO doc` types as `doc`, `the checkout service` as `service`. Returns `undefined`
+ * when nothing in the phrase names a kind, which is the common case and must stay harmless.
+ */
+export function inferType(text: string): string | undefined {
+  const words = text.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter(Boolean);
+  for (let i = words.length - 1; i >= 0; i--) {
+    const w = words[i] as string;
+    if (TYPE_NOUNS.includes(w)) return w.replace(/s$/, '');
+  }
+  return undefined;
+}
 
 export interface LinkCandidate {
   readonly id: string;
@@ -120,7 +171,13 @@ export function link(
   records: readonly Candidate[],
   opts: LinkOptions = {},
 ): LinkResult {
-  const probe: Candidate = { id: MENTION_PROBE_ID, name: mention, type: opts.type ?? '' };
+  // The mention's type is INFERRED, not supplied. Until Phase 16 the probe carried `''`, which can
+  // never equal a record's kind, so the 0.2 the weights give `type` was dead in every linking call
+  // and a perfect name match capped at 0.700. Measured before the change.
+  const mentionType = opts.type ?? inferType(mention);
+  const probe: Candidate = mentionType === undefined
+    ? { id: MENTION_PROBE_ID, name: mention }
+    : { id: MENTION_PROBE_ID, name: mention, type: mentionType };
   const keys = blockKeys(probe, { phonetic: true });
 
   const scored: LinkCandidate[] = [];
@@ -134,7 +191,11 @@ export function link(
       if (keys.has(k)) { shares = true; break; }
     }
     if (!shares) continue;
-    scored.push({ id: r.id, name: r.name, score: similarity(probe, r).total });
+    // A record's stored `type` is its record KIND — every note is a `node` — so it cannot separate a
+    // team from a service. Its head noun can, and falls back to the kind when there is none.
+    const recType = inferType(r.name) ?? r.type;
+    const typed: Candidate = recType === undefined ? { id: r.id, name: r.name } : { id: r.id, name: r.name, type: recType };
+    scored.push({ id: r.id, name: r.name, score: similarity(probe, typed).total });
   }
 
   // Ties broken by id so the order is stable across runs; the `tie` verdict is what tells a caller
@@ -148,7 +209,7 @@ export function link(
   const verdict: LinkVerdict =
     top === undefined ? 'no_candidates'
       : margin === 0 ? 'tie'
-        : top.score < LINK_WEAK_SCORE ? 'weak'
+        : (margin ?? 1) < LINK_WEAK_MARGIN ? 'weak'
           : 'ranked';
 
   const capped = opts.limit === undefined ? scored : scored.slice(0, opts.limit);

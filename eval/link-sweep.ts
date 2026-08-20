@@ -18,6 +18,11 @@
  *     the one Phase 12 measured as strongly separating a right top-1 from a wrong one.
  *   - **both**   — reject unless the top score AND the margin clear their thresholds.
  *
+ * **Both a hard reject and a flag are evaluated, and Phase 16 found that this matters.** Phase 15
+ * swept hard rejects only, concluded that every margin rule was worse than a score cut, and then
+ * shipped a FLAG — where a margin rule drops nothing and wins outright. The sweep had measured a
+ * design the code does not use. Reading only the reject table is how that happened.
+ *
  * The metric is the joint one, because the two halves trade against each other and a rule that
  * rejects everything scores perfectly on NIL:
  *
@@ -83,6 +88,35 @@ console.log(`\n${B}rules${O}  ${D}kept = right answer retained (of ${inStore.len
 for (const r of results) {
   const mark = r.total === best ? `${G}◀ best${O}` : '';
   console.log(`  ${r.label.padEnd(34)} kept ${String(r.kept).padStart(2)}/${inStore.length}  nil ${String(r.nilOk).padStart(2)}/${nil.length}  total ${pct(r.total, rows.length)}  ${mark}`);
+}
+
+// ── The same rules, evaluated as the FLAG the engine actually ships ─────────────────────────
+// A flag drops nothing, so a correct answer that is flagged is still reachable. `soft` counts those.
+interface Flag { readonly label: string; readonly nilFlagged: number; readonly top1: number; readonly soft: number }
+
+function asFlag(label: string, weak: (r: Row) => boolean): Flag {
+  const top1 = inStore.filter((r) => r.top === r.gold).length;
+  return {
+    label,
+    nilFlagged: nil.filter((r) => r.top === null || weak(r)).length,
+    top1,
+    soft: inStore.filter((r) => r.top === r.gold && weak(r)).length,
+  };
+}
+
+const flags: Flag[] = [
+  asFlag('none', () => false),
+  asFlag('score < 0.30', (r) => r.topScore < 0.3),
+  asFlag('margin < 0.05', (r) => (r.margin ?? 1) < 0.05),
+  asFlag('margin < 0.10', (r) => (r.margin ?? 1) < 0.1),
+  asFlag('margin < 0.15', (r) => (r.margin ?? 1) < 0.15),
+  asFlag('score < 0.30 or margin < 0.10', (r) => r.topScore < 0.3 || (r.margin ?? 1) < 0.1),
+];
+const bestFlag = Math.max(...flags.map((f) => f.nilFlagged - f.soft));
+console.log(`\n${B}the same rules as a FLAG${O}  ${D}nothing dropped, so Top-1 never moves; soft = correct answers also flagged${O}`);
+for (const f of flags) {
+  const mark = f.nilFlagged - f.soft === bestFlag ? `${G}◀ best${O}` : '';
+  console.log(`  ${f.label.padEnd(34)} nil ${String(f.nilFlagged).padStart(2)}/${nil.length}  top-1 ${f.top1}/${inStore.length}  soft ${f.soft}  ${mark}`);
 }
 
 console.log(`\n${D}A rule that rejects everything scores ${nil.length}/${nil.length} on nil and 0 on kept —${O}`);
