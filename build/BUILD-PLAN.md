@@ -6,13 +6,19 @@ you should not have to ask anyone what happened.
 
 ## Status
 
-**Phases 0–14 closed.** Phase 5 reopened the build for the item the post-mortem named as the
+**Phases 0–15 closed.** Phase 5 reopened the build for the item the post-mortem named as the
 largest gap, and the harness rejected a shipped constant on its first run. Post-mortem: `POSTMORTEM.md`. The ten standing rules moved into
 `engine/CLAUDE.md`.
 
 Phase 8 wired entity resolution into the store, which was the last component with no caller.
 Both defects it found were found by **running the CLI**, not by the suite — including one in the
 error message of the guard the phase existed to build.
+
+Phase 15 executed `DEC-014`'s own reversal condition, two phases after it was set. The reject option
+went from 1 of 7 to 5 of 7 **without losing a correct answer**, because the calibration showed a hard
+cut would silence two true rewordings and still miss two NILs — so `weak` labels rather than filters.
+The Phase 10 guard asserting the module held no constant turned red the moment one was added, which
+is what forced `DEC-017` to be written before the code could ship.
 
 Phase 14 fixed the polarity false positives Phase 13 measured — precision 66.7% → 100%, silence
 61.5% → 100% — and is the first change here judged by a harness rather than by argument. Its first
@@ -68,6 +74,7 @@ copying it would have rebuilt the erasure hole `DEC-004` closed.
 | 12 | — | Evaluation harness for entity linking | **closed 2026-08-20 — 397 tests; Top-1 88.2%, NIL 14.3%** |
 | 13 | — | Evaluation harness for extraction | **closed 2026-08-20 — 415 tests; recall 100%, precision 66.7%** |
 | 14 | — | Polarity: negation, hedging and counterfactuals | **closed 2026-08-20 — 431 tests; precision 66.7% → 100%, silence → 100%** |
+| 15 | — | The linking reject option | **closed 2026-08-20 — 436 tests; NIL 14.3% → 71.4%, Top-1 unchanged** |
 
 ## The method
 
@@ -100,6 +107,7 @@ Those are `DEC-002` through `DEC-005` and they were made in Phase 0.
 | `DEC-014` | Linking reports ranked candidates and never decides identity from a score |
 | `DEC-015` | A merged view is composed at read time, with one rule and every disagreement reported |
 | `DEC-016` | A relation is emitted only when its clause asserts it; scope is a clause, not a window |
+| `DEC-017` | Linking gains a `weak` verdict and one calibrated constant, and still never rejects — amends `DEC-014` |
 
 ## Phase 1 — the five algorithms
 
