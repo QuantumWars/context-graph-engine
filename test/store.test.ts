@@ -16,7 +16,7 @@ import { readLog } from '../src/store/log';
  */
 const READ_PATHS = [
   'contentOf', 'resolveId', 'getNode', 'listNodes', 'getDecision', 'listDecisions',
-  'getEdge', 'listEdges', 'stateAt', 'why', 'searchable', 'propose', 'linkMention', 'evidenceFor',
+  'getEdge', 'listEdges', 'stateAt', 'why', 'searchable', 'propose', 'linkMention', 'mergedView', 'evidenceFor',
 ] as const;
 
 /** Does this read path still surface `id`? One probe per path, so all ten are really exercised. */
@@ -46,6 +46,8 @@ const probes: Record<(typeof READ_PATHS)[number], (s: Store, id: string) => bool
       ? (name as Record<string, unknown>)['text'] : undefined;
     return typeof text === 'string' && s.linkMention(text).candidates.some((c) => c.id === id);
   },
+  // Composes the record's own content when it is in no merge, so it surfaces the id like the rest.
+  mergedView: (s, id) => s.mergedView(id).content !== null,
   evidenceFor: (s, id) => s.listEdges().some((e) => {
     const ev = s.evidenceFor(e.id);
     return ev !== null && ev.source === id && ev.quote.ok;
@@ -130,7 +132,8 @@ describe('Task 2.1 — one store per fact, across a save and a reload', () => {
     const targets: Record<string, string> = {
       contentOf: 'd1', resolveId: 'd1', getNode: 'n1', listNodes: 'n1', getDecision: 'd1',
       listDecisions: 'd1', getEdge: 'e1', listEdges: 'e1', stateAt: 'd1',
-      why: 'd2', searchable: 'd1', propose: 'src1', linkMention: 'src1', evidenceFor: 'src1',
+      why: 'd2', searchable: 'd1', propose: 'src1', linkMention: 'src1', mergedView: 'd1',
+      evidenceFor: 'src1',
     };
     expect(Object.keys(targets).sort()).toEqual([...READ_PATHS].sort()); // anti-vacuity
 

@@ -24,7 +24,7 @@ import { block } from '../resolve/blocking';
 import { extract, type Extracted, type Rule } from '../extract/rules';
 import { resolveSpan, type Span } from '../extract/span';
 import { link, type LinkResult } from '../extract/link';
-import { cluster, merged, type Cluster } from '../resolve/cluster';
+import { cluster, merged, SUGGEST_MIN_SCORE, type Cluster } from '../resolve/cluster';
 import type { Candidate } from '../resolve/similarity';
 import type { RecordKind, RecordMeta, RecordMetaInput, SpanMeta, StoredRecord } from './records';
 import { ensureStoreDir, type StorePaths } from './paths';
@@ -92,6 +92,24 @@ export interface Proposal extends Extracted {
    */
   readonly subjectLink: LinkResult;
   readonly objectLink: LinkResult;
+}
+
+/** One field on which merged members disagree, with the members holding each value. */
+export interface FieldConflict {
+  readonly field: string;
+  readonly values: readonly { readonly value: Json; readonly from: readonly string[] }[];
+}
+
+/** The composed content of a merge. `DEC-015`: computed at read time, never stored. */
+export interface MergedView {
+  readonly requested: string;
+  readonly canonical: string;
+  readonly via: string | null;
+  readonly members: readonly string[];
+  readonly content: Json | null;
+  readonly conflicts: readonly FieldConflict[];
+  /** Members whose content is gone, so a thin view is distinguishable from a complete one. */
+  readonly unavailable: readonly string[];
 }
 
 /** What an edge's extraction provenance resolves to now — never what it resolved to when written. */
@@ -370,7 +388,7 @@ export class Store {
    * each cluster together so a caller can see what it is being asked to believe, rather than a
    * merged blob with a confidence attached.
    */
-  suggest(minScore = 0.6): readonly Cluster[] {
+  suggest(minScore = SUGGEST_MIN_SCORE): readonly Cluster[] {
     const named: Candidate[] = this.live()
       .filter((r) => r.kind === 'node' || r.kind === 'decision')
       .map((r) => ({ id: r.id, name: nameOf(r.content), type: r.kind }))
@@ -518,6 +536,61 @@ export class Store {
    */
   linkMention(mention: string, opts: { readonly limit?: number; readonly exclude?: readonly string[] } = {}): LinkResult {
     return link(mention, this.linkables(), opts);
+  }
+
+  /**
+   * The composed content of everything merged with `id`.
+   *
+   * `DEC-015`. `contentOf` answers from the canonical alone, so a detail recorded only on another
+   * member is invisible to it. This composes them: the canonical wins every field it has, the rest
+   * fill in what it lacks, and **every disagreement is reported rather than quietly resolved** —
+   * two records differing on a field is often the reason the merge was wrong.
+   *
+   * Nothing is stored. `semantica`'s `MergeStrategyManager` produces a new merged entity, which
+   * then has to live somewhere and be kept in step with its sources; composing at read time means
+   * purging a member changes this immediately, with nothing to rewrite and nothing to miss.
+   */
+  mergedView(id: string, at?: string): MergedView {
+    const r = at === undefined ? this.resolveId(id) : this.resolveId(id, at);
+    // The merge that CONTAINS this record, not the one that redirects it. `resolveId` reports
+    // `via: null` for the canonical itself — it is not redirected anywhere — so keying off `via`
+    // gave the canonical a view of only itself, which is the one record whose view matters most.
+    const mergeRec = activeMergesIn(this.records, at ?? this.deps.now())
+      .find((m) => (m.meta.members ?? []).includes(r.canonical));
+    const members = mergeRec === undefined
+      ? [r.canonical]
+      : [...(mergeRec.meta.members ?? [r.canonical])];
+
+    const unavailable: string[] = [];
+    // Canonical first: composition takes the first value seen for a field, so ordering IS the rule.
+    const ordered = [r.canonical, ...members.filter((m) => m !== r.canonical)];
+
+    const composed: Record<string, Json> = {};
+    const seen = new Map<string, { value: Json; from: string[] }[]>();
+    for (const m of ordered) {
+      const rec = this.byId(m);
+      if (rec === undefined || rec.content === null) { unavailable.push(m); continue; }
+      const c = rec.content;
+      if (typeof c !== 'object' || Array.isArray(c)) continue;
+      for (const [k, v] of Object.entries(c as Record<string, Json>)) {
+        if (!(k in composed)) composed[k] = v;
+        const bucket = seen.get(k) ?? [];
+        const same = bucket.find((b) => JSON.stringify(b.value) === JSON.stringify(v));
+        if (same === undefined) bucket.push({ value: v, from: [m] }); else same.from.push(m);
+        seen.set(k, bucket);
+      }
+    }
+
+    const conflicts: FieldConflict[] = [];
+    for (const [field, values] of seen) {
+      if (values.length > 1) conflicts.push({ field, values: values.map((v) => ({ value: v.value, from: v.from })) });
+    }
+
+    return {
+      requested: id, canonical: r.canonical, via: mergeRec?.id ?? null, members: ordered,
+      content: Object.keys(composed).length === 0 ? null : composed,
+      conflicts, unavailable,
+    };
   }
 
   /**

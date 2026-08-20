@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   block, blockKeys, capBySimilarity, soundex, tokens,
   MIN_TOKEN_LENGTH, TOKEN_PREFIX, type Pair,
 } from '../src/resolve/blocking';
-import { WEIGHTS, WEIGHT_TOTAL, jaccard, similarity, trigrams, type Candidate } from '../src/resolve/similarity';
-import { cluster, merged } from '../src/resolve/cluster';
+import { MAX_SCORE_WITHOUT_PROPS, WEIGHTS, WEIGHT_TOTAL, jaccard, similarity, trigrams, type Candidate } from '../src/resolve/similarity';
+import { cluster, merged, SUGGEST_MIN_SCORE } from '../src/resolve/cluster';
 import { scoreBlocking } from '../eval/resolve-metrics';
 import { DUPLICATES, RECORDS } from '../eval/duplicates';
 
@@ -284,4 +286,66 @@ describe('blocking on the labelled set', () => {
     const cand = RECORDS.flatMap((r, i) => RECORDS.slice(i + 1).map((s) => ({ a: r.id, b: s.id })));
     return scoreBlocking(cand, DUPLICATES, all);
   }
+});
+
+describe('Phase 11 — the two constants the measurement moved', () => {
+  const co = (id: string, name: string) => ({ id, name, type: 'Company' });
+
+  test('SUGGEST_MIN_SCORE is 0.7, and Store.suggest defaults to it rather than a bare literal', () => {
+    expect(SUGGEST_MIN_SCORE).toBe(0.7);
+    // The old 0.6 lived as a default parameter, so `constants-gate` never saw it. This asserts the
+    // signature now references the named constant, which is what puts it under the gate.
+    const src = readFileSync(join(import.meta.dir, '..', 'src', 'store', 'store.ts'), 'utf8');
+    expect(src).toContain('suggest(minScore = SUGGEST_MIN_SCORE)');
+    expect(src).not.toContain('suggest(minScore = 0.6)');
+  });
+
+  test('the old default chains unrelated records where the new one does not', () => {
+    // A real chain, found by search over the fixture the measurement used. Not hand-tuned: A~B and
+    // B~C both clear 0.6 by a hair, while the two ENDS are nothing alike.
+    const A = co('a', 'Hooli Fisheries Incorporated');
+    const B = co('b', 'Northwind Fisheries Incorporated');
+    const C = co('c', 'Northwind Airlines Incorporated');
+
+    // Assert the fixture is the shape the test claims, before relying on it.
+    expect(similarity(A, B).total).toBeGreaterThanOrEqual(0.6);
+    expect(similarity(B, C).total).toBeGreaterThanOrEqual(0.6);
+    expect(similarity(A, C).total).toBeLessThan(0.5);       // Hooli Fisheries vs Northwind Airlines
+
+    const recs = [A, B, C];
+    const pairs = block(recs, { typeScoped: true, phonetic: true }).pairs;
+    const ids = recs.map((r) => r.id);
+
+    // At the OLD default, transitive closure merges all three — including the two that are not alike.
+    expect([...merged(cluster(ids, pairs, 0.6))[0]!.members].sort()).toEqual(['a', 'b', 'c']);
+    // At the new one, nothing is proposed at all.
+    expect(merged(cluster(ids, pairs, SUGGEST_MIN_SCORE))).toEqual([]);
+  });
+
+  test('an exact duplicate still clears the default — the ceiling must not exclude it', () => {
+    // The failure this guards: two byte-identical records without props reach only name+type, so a
+    // threshold set too near the ceiling silently matches nothing at all.
+    const recs = [co('x', 'Acme Robotics Group'), co('y', 'Acme Robotics Group')];
+    const pairs = block(recs, { typeScoped: true, phonetic: true }).pairs;
+    const groups = merged(cluster(recs.map((r) => r.id), pairs, SUGGEST_MIN_SCORE));
+    expect(groups).toHaveLength(1);
+    expect([...groups[0]!.members].sort()).toEqual(['x', 'y']);
+  });
+
+  test('MAX_SCORE_WITHOUT_PROPS is derived from WEIGHTS, and nothing without props can exceed it', () => {
+    expect(MAX_SCORE_WITHOUT_PROPS).toBe(WEIGHTS.name + WEIGHTS.type);
+    const s = similarity(co('x', 'Acme Robotics Group'), co('y', 'Acme Robotics Group')).total;
+    expect(s).toBeLessThanOrEqual(MAX_SCORE_WITHOUT_PROPS);
+    expect(s).toBeCloseTo(MAX_SCORE_WITHOUT_PROPS, 10);
+    // And a threshold above the ceiling matches nothing, however identical the records are.
+    const recs = [co('x', 'Acme Robotics Group'), co('y', 'Acme Robotics Group')];
+    const pairs = block(recs, { typeScoped: true, phonetic: true }).pairs;
+    expect(merged(cluster(recs.map((r) => r.id), pairs, MAX_SCORE_WITHOUT_PROPS + 0.01))).toEqual([]);
+  });
+
+  test('the ceiling lifts when both records actually carry props', () => {
+    // Proving the ceiling is a consequence of absent evidence, not a hard cap on the scorer.
+    const withProps = (id: string) => ({ id, name: 'Acme Robotics Group', type: 'Company', props: { city: 'Leeds' } });
+    expect(similarity(withProps('x'), withProps('y')).total).toBeGreaterThan(MAX_SCORE_WITHOUT_PROPS);
+  });
 });

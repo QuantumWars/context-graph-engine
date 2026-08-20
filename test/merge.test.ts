@@ -275,3 +275,73 @@ describe('Task 8.4 — the interactions', () => {
     expect(s.resolveId('B', '2026-06-01T00:00:01Z').via).toBeNull();  // and gone one second later
   });
 });
+
+describe('DEC-015 — a merged view is composed at read time, never stored', () => {
+  async function twoHalves(): Promise<Store> {
+    const s = await Store.open(paths, deps);
+    await s.append({ kind: 'node', id: 'A', content: { text: 'checkout outage', severity: 'p1' } });
+    await s.append({ kind: 'node', id: 'B', content: { text: 'the friday incident', owner: 'platform' } });
+    return s;
+  }
+
+  test('the view composes fields the canonical does not have', async () => {
+    const s = await twoHalves();
+    // Before the merge, the canonical alone knows nothing about the owner.
+    expect(s.contentOf('A')).toEqual({ text: 'checkout outage', severity: 'p1' });
+    await s.merge(['A', 'B'], 'A', 'same incident');
+
+    const v = (await Store.open(paths, deps)).mergedView('A');
+    expect(v.content).toEqual({ text: 'checkout outage', severity: 'p1', owner: 'platform' });
+    expect([...v.members].sort()).toEqual(['A', 'B']);
+    expect(v.canonical).toBe('A');
+  });
+
+  test('the canonical wins a disagreement, AND the disagreement is reported with who holds what', async () => {
+    const s = await twoHalves();
+    await s.merge(['A', 'B'], 'A', 'same incident');
+    const v = s.mergedView('B');                     // asking via the non-canonical member
+    expect((v.content as Record<string, unknown>)['text']).toBe('checkout outage');
+    const clash = v.conflicts.find((c) => c.field === 'text')!;
+    expect(clash.values.map((x) => x.value)).toEqual(['checkout outage', 'the friday incident']);
+    expect(clash.values.map((x) => x.from)).toEqual([['A'], ['B']]);
+    // A field only one member has is not a conflict.
+    expect(v.conflicts.map((c) => c.field)).not.toContain('owner');
+  });
+
+  test('a record in no merge returns its own content and no conflicts — callers need no special case', async () => {
+    const s = await twoHalves();
+    const v = s.mergedView('A');
+    expect(v).toEqual({
+      requested: 'A', canonical: 'A', via: null, members: ['A'],
+      content: { text: 'checkout outage', severity: 'p1' }, conflicts: [], unavailable: [],
+    });
+  });
+
+  test('a purged member is named in `unavailable`, so a thin view is not mistaken for a complete one', async () => {
+    const s = await twoHalves();
+    await s.merge(['A', 'B'], 'A', 'same incident');
+    await s.purge('B', 'contained a customer name');
+    const v = (await Store.open(paths, deps)).mergedView('A');
+    expect(v.unavailable).toEqual(['B']);
+    expect(v.content).toEqual({ text: 'checkout outage', severity: 'p1' });   // B's owner is gone
+    expect(JSON.stringify(v)).not.toContain('platform');
+  });
+
+  test('a RETRACTED member still composes, because retraction is not erasure', async () => {
+    const s = await twoHalves();
+    await s.merge(['A', 'B'], 'A', 'same incident');
+    await s.retract('B', 'that phrasing was wrong');
+    const v = s.mergedView('A');
+    expect(v.unavailable).toEqual([]);
+    expect((v.content as Record<string, unknown>)['owner']).toBe('platform');
+  });
+
+  test('composing writes nothing', async () => {
+    const s = await twoHalves();
+    await s.merge(['A', 'B'], 'A', 'same incident');
+    const before = readFileSync(paths.log, 'utf8');
+    const v = s.mergedView('A');
+    expect(Object.keys(v.content as object).length).toBeGreaterThan(2);   // it really composed
+    expect(readFileSync(paths.log, 'utf8')).toBe(before);
+  });
+});

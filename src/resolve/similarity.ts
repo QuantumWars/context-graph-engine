@@ -38,6 +38,29 @@ export const WEIGHTS = { name: 0.7, type: 0.2, props: 0.1 } as const;
 /** PROVENANCE: **calibrated** by construction — asserted equal to the sum of `WEIGHTS`. */
 export const WEIGHT_TOTAL = 1.0;
 
+/**
+ * The most two records can score when neither carries `props`.
+ *
+ * Derived from `WEIGHTS`, not chosen: a missing component scores 0 rather than being dropped from
+ * the denominator, so two byte-identical records with no properties reach only `name + type`.
+ * **This makes any threshold above it unusable** — measured 2026-08-20, `minScore = 0.9` matched
+ * nothing at all on a 805-record fixture including five exact duplicates, and floating point puts
+ * the real total at 0.8999999999999999, just under a `>=` comparison against 0.9.
+ *
+ * Semantica caps at exactly the same place, measured the same day against
+ * `SimilarityCalculator.calculate_similarity`:
+ *
+ *     identical, no props   score=0.900000  {'string': 1.0, 'property': 1.0, 'relationship': 0.5}
+ *     different names       score=0.656374  {'string': 0.594, 'property': 1.0, 'relationship': 0.5}
+ *
+ * Its ceiling comes from a neutral 0.5 for absent relationships; the more interesting number is the
+ * second row. Two entirely unrelated companies score 0.656 there, because two EMPTY property sets
+ * are scored 1.0 — absence read as agreement — giving every pair a floor of 0.3 before a name is
+ * looked at. That is what `renormalising over the components we happen to have` buys, and it is why
+ * the fixed denominator here stays: an unknown must not manufacture agreement it has no basis for.
+ */
+export const MAX_SCORE_WITHOUT_PROPS = WEIGHTS.name + WEIGHTS.type;
+
 /** Character trigrams, which tolerate a typo and word reordering that token sets do not. */
 export function trigrams(s: string): ReadonlySet<string> {
   const t = ` ${s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;

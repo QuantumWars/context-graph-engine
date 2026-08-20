@@ -59,6 +59,7 @@ const USAGE = `${B}context graph engine${O}
   ${B}engine confirm${O} <id> --n <i> --from <id> --to <id> [--note <s>]
                                                turn proposal #i into an edge, carrying the span
                                                it was read from. You choose the endpoints.
+  ${B}engine view${O}    <id>                          everything merged with this record, composed
   ${B}engine refers${O}  <phrase...> [--limit 5]        which records a phrase might refer to
   ${B}engine evidence${O} <edge-id>                 resolve an edge's span back to the text now
   ${B}engine verify${O}                           check the whole chain
@@ -89,7 +90,7 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const known = ['record', 'link', 'retract', 'purge', 'at', 'why', 'find', 'suggest', 'merge', 'extract', 'confirm', 'refers', 'evidence', 'verify', 'log'];
+  const known = ['record', 'link', 'retract', 'purge', 'at', 'why', 'find', 'suggest', 'merge', 'extract', 'confirm', 'refers', 'view', 'evidence', 'verify', 'log'];
   if (!known.includes(args.cmd)) {
     console.error(`${R}error${O}: unknown command ${JSON.stringify(args.cmd)}\n${D}known: ${known.join(', ')}${O}\n`);
     return 2;
@@ -239,6 +240,24 @@ async function main(): Promise<number> {
       console.log(`${G}confirmed${O} ${from} --${p.predicate}--> ${to}  seq=${rec.seq}`);
       console.log(`${D}  evidence: ${JSON.stringify(p.triggerText)} in ${id} [${p.rule}]${O}`);
       console.log(`${D}  the edge stores offsets, not that text — purge ${id} and the evidence goes with it.${O}`);
+      return 0;
+    }
+    case 'view': {
+      const id = need(args, 0, 'id');
+      const v = store.mergedView(id);
+      console.log(`${B}${v.requested}${O}${v.via === null ? `  ${D}(in no merge)${O}` : `  ${D}→ ${v.canonical} via ${v.via}${O}`}`);
+      if (v.members.length > 1) console.log(`  ${D}members: ${v.members.join(', ')}${O}`);
+      console.log(`  ${JSON.stringify(v.content)}`);
+      for (const c of v.conflicts) {
+        console.log(`  ${Y}conflict${O} on ${B}${c.field}${O}:`);
+        for (const val of c.values) console.log(`      ${JSON.stringify(val.value)}  ${D}from ${val.from.join(', ')}${O}`);
+      }
+      if (v.unavailable.length > 0) {
+        console.log(`  ${Y}unavailable${O}: ${v.unavailable.join(', ')} ${D}(purged — their fields are absent above)${O}`);
+      }
+      if (v.conflicts.length > 0) {
+        console.log(`\n${D}The canonical's value is the one shown. A conflict is often why a merge was wrong.${O}`);
+      }
       return 0;
     }
     case 'refers': {

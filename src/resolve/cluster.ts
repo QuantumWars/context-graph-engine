@@ -32,6 +32,37 @@
 
 import type { Pair } from './blocking';
 
+/**
+ * The pairwise score at or above which two records are proposed as the same thing.
+ *
+ * PROVENANCE: **declared placeholder** — with evidence, which is more than it had before, and
+ * still not a calibration. Measured 2026-08-20 on an 805-record fixture of company names drawn from
+ * disjoint word pools with five planted exact duplicates. Recall is 100% at every value below the
+ * ceiling; precision is what moves:
+ *
+ *     th=0.6  groups=114  precision=  4.4%  recall=100%  biggestGroup=32
+ *     th=0.7  groups=  5  precision=100.0%  recall=100%  biggestGroup=2
+ *     th=0.8  groups=  5  precision=100.0%  recall=100%  biggestGroup=2
+ *     th=0.9  groups=  0  precision=  0.0%  recall=  0%  biggestGroup=0
+ *
+ * **0.6 was the shipped default until this measurement and it was wrong**: 109 of its 114 proposals
+ * mixed records with different names, and transitive closure chained 32 unrelated companies into one
+ * group. It was also a bare default parameter on `Store.suggest` rather than a named constant, so
+ * `constants-gate` never saw it — the exact hiding place the constants rule exists to close.
+ *
+ * 0.7 is chosen over 0.8 because they are indistinguishable on this fixture and 0.7 is the value
+ * `semantica`'s own `DuplicateDetector` defaults to (`duplicate_detector.py:99`), so the more
+ * permissive of two equal options is also the one with independent precedent.
+ *
+ * **One synthetic fixture is not a calibration**, which is why this stays a declared placeholder:
+ * it establishes that 0.6 is wrong on name-shaped data and that 0.7 is not, and nothing more. What
+ * would calibrate it is a labelled set of duplicates drawn from a real store; the nearest thing,
+ * `eval/duplicates.ts`, has 26 records and its labels were written by the same session that wrote
+ * the blocker. `th=0.9` matching nothing is not a tuning result — see
+ * `MAX_SCORE_WITHOUT_PROPS`, which no pair without properties can exceed.
+ */
+export const SUGGEST_MIN_SCORE = 0.7;
+
 export interface Cluster {
   /** Stable: the lexicographically smallest member, so the same input yields the same id. */
   readonly id: string;

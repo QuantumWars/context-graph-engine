@@ -320,6 +320,28 @@ server.registerTool('refers', {
   } catch (e) { return fail(e); }
 });
 
+server.registerTool('view', {
+  title: 'Everything merged with this record, composed',
+  description:
+    'Return the combined content of every record merged with this one. A plain read answers from ' +
+    'the canonical record alone, so a detail recorded only on another member is invisible to it; ' +
+    'this composes them. The canonical wins any field it has, the others fill in what it lacks, ' +
+    'and every disagreement is listed in `conflicts` with the records holding each value — a ' +
+    'conflict is often the reason a merge was wrong, so read them. Nothing is stored: this is ' +
+    'computed when you ask, so purging a member changes it immediately. Members whose content was ' +
+    'purged are listed in `unavailable`, which is how you tell a thin view from a complete one.',
+  inputSchema: {
+    id: z.string().min(1),
+    at: ISO.optional().describe('compose as the merge stood at this instant'),
+  },
+}, async ({ id, at }) => {
+  try {
+    const s = await Store.open(paths());
+    const v = at === undefined ? s.mergedView(id) : s.mergedView(id, at);
+    return ok(v);
+  } catch (e) { return fail(e); }
+});
+
 server.registerTool('evidence', {
   title: 'Show the text behind an edge',
   description:

@@ -29870,6 +29870,7 @@ function assertConsistent(d) {
 
 // src/resolve/similarity.ts
 var WEIGHTS = { name: 0.7, type: 0.2, props: 0.1 };
+var MAX_SCORE_WITHOUT_PROPS = WEIGHTS.name + WEIGHTS.type;
 function trigrams(s) {
   const t = ` ${s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
   const out = new Set;
@@ -30123,6 +30124,7 @@ function link(mention, records, opts = {}) {
 }
 
 // src/resolve/cluster.ts
+var SUGGEST_MIN_SCORE = 0.7;
 function cluster(ids, pairs, minScore) {
   const parent = new Map;
   for (const id of ids)
@@ -30358,7 +30360,7 @@ class Store {
       return { append: [rec], value: rec };
     });
   }
-  suggest(minScore = 0.6) {
+  suggest(minScore = SUGGEST_MIN_SCORE) {
     const named = this.live().filter((r) => r.kind === "node" || r.kind === "decision").map((r) => ({ id: r.id, name: nameOf(r.content), type: r.kind })).filter((c) => c.name !== "");
     if (named.length < 2)
       return [];
@@ -30451,6 +30453,50 @@ class Store {
   }
   linkMention(mention, opts = {}) {
     return link(mention, this.linkables(), opts);
+  }
+  mergedView(id, at) {
+    const r = at === undefined ? this.resolveId(id) : this.resolveId(id, at);
+    const mergeRec = activeMergesIn(this.records, at ?? this.deps.now()).find((m) => (m.meta.members ?? []).includes(r.canonical));
+    const members = mergeRec === undefined ? [r.canonical] : [...mergeRec.meta.members ?? [r.canonical]];
+    const unavailable = [];
+    const ordered = [r.canonical, ...members.filter((m) => m !== r.canonical)];
+    const composed = {};
+    const seen = new Map;
+    for (const m of ordered) {
+      const rec = this.byId(m);
+      if (rec === undefined || rec.content === null) {
+        unavailable.push(m);
+        continue;
+      }
+      const c = rec.content;
+      if (typeof c !== "object" || Array.isArray(c))
+        continue;
+      for (const [k, v] of Object.entries(c)) {
+        if (!(k in composed))
+          composed[k] = v;
+        const bucket = seen.get(k) ?? [];
+        const same = bucket.find((b) => JSON.stringify(b.value) === JSON.stringify(v));
+        if (same === undefined)
+          bucket.push({ value: v, from: [m] });
+        else
+          same.from.push(m);
+        seen.set(k, bucket);
+      }
+    }
+    const conflicts = [];
+    for (const [field, values] of seen) {
+      if (values.length > 1)
+        conflicts.push({ field, values: values.map((v) => ({ value: v.value, from: v.from })) });
+    }
+    return {
+      requested: id,
+      canonical: r.canonical,
+      via: mergeRec?.id ?? null,
+      members: ordered,
+      content: Object.keys(composed).length === 0 ? null : composed,
+      conflicts,
+      unavailable
+    };
   }
   evidenceFor(edgeId) {
     const edge = this.byId(edgeId);
@@ -31060,6 +31106,22 @@ server.registerTool("refers", {
       candidates: r.candidates,
       note: "Ranked, not decided. No threshold was applied."
     });
+  } catch (e) {
+    return fail(e);
+  }
+});
+server.registerTool("view", {
+  title: "Everything merged with this record, composed",
+  description: "Return the combined content of every record merged with this one. A plain read answers from " + "the canonical record alone, so a detail recorded only on another member is invisible to it; " + "this composes them. The canonical wins any field it has, the others fill in what it lacks, " + "and every disagreement is listed in `conflicts` with the records holding each value \u2014 a " + "conflict is often the reason a merge was wrong, so read them. Nothing is stored: this is " + "computed when you ask, so purging a member changes it immediately. Members whose content was " + "purged are listed in `unavailable`, which is how you tell a thin view from a complete one.",
+  inputSchema: {
+    id: exports_external.string().min(1),
+    at: ISO.optional().describe("compose as the merge stood at this instant")
+  }
+}, async ({ id, at }) => {
+  try {
+    const s = await Store.open(paths());
+    const v = at === undefined ? s.mergedView(id) : s.mergedView(id, at);
+    return ok(v);
   } catch (e) {
     return fail(e);
   }
