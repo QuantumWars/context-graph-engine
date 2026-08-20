@@ -11,7 +11,8 @@
     "demo": "bun demo.ts",
     "engine": "bun src/cli.ts",
     "bundle": "bun build mcp/server.ts --target=node --outfile mcp/server.bundle.mjs",
-    "mcp": "bun mcp/server.ts"
+    "mcp": "bun mcp/server.ts",
+    "eval:link": "bun eval/link-run.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
