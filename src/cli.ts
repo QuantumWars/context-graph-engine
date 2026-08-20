@@ -201,7 +201,8 @@ async function main(): Promise<number> {
           const top = lr.candidates.slice(0, 3);
           if (top.length === 0) { console.log(`  ${D}${role} → no candidate records${O}`); continue; }
           const m = lr.margin === null ? '' : `  ${D}margin ${lr.margin.toFixed(3)}${O}`;
-          console.log(`  ${D}${role} → ${lr.verdict}${O}${m}`);
+          const vc = lr.verdict === 'weak' ? Y : D;
+          console.log(`  ${vc}${role} → ${lr.verdict}${O}${m}${lr.verdict === 'weak' ? `  ${Y}(probably none of these)${O}` : ''}`);
           for (const c of top) console.log(`      ${c.score.toFixed(3)}  ${c.id}`);
         }
         // Pre-fill an endpoint ONLY when there is exactly one candidate. That is a fact about the
@@ -264,7 +265,12 @@ async function main(): Promise<number> {
       const phrase = args.positional.join(' ');
       if (phrase === '') { console.error(`${R}error${O}: give a phrase`); return 2; }
       const r = store.linkMention(phrase, { limit: Number(str('limit') ?? '5') });
-      console.log(`${B}${JSON.stringify(r.mention)}${O}  ${r.verdict}${r.margin === null ? '' : `  ${D}margin ${r.margin.toFixed(3)}${O}`}`);
+      const verdictColour = r.verdict === 'weak' || r.verdict === 'no_candidates' ? Y : G;
+      console.log(`${B}${JSON.stringify(r.mention)}${O}  ${verdictColour}${r.verdict}${O}${r.margin === null ? '' : `  ${D}margin ${r.margin.toFixed(3)}${O}`}`);
+      if (r.verdict === 'weak') {
+        console.log(`  ${Y}nothing here matches well.${O} ${D}Most phrases that refer to nothing land here.${O}`);
+        console.log(`  ${D}The candidates below are shown anyway, and are probably not the answer.${O}`);
+      }
       if (r.candidates.length === 0) { console.log(`  ${D}no record shares enough with that phrase to be a candidate${O}`); return 0; }
       for (const c of r.candidates) console.log(`  ${c.score.toFixed(3)}  ${B}${c.id}${O}  ${D}${c.name.slice(0, 50)}${O}`);
       console.log(`\n${D}Ranked, not decided. No threshold was applied — the margin is the gap to the${O}`);

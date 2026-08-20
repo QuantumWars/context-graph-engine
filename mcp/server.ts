@@ -299,9 +299,12 @@ server.registerTool('confirm', {
 server.registerTool('refers', {
   title: 'Which records a phrase might refer to',
   description:
-    'Rank the records a phrase could be referring to. THIS IS ADVISORY AND WRITES NOTHING. No ' +
-    'threshold decides anything: the verdict is "no_candidates" when nothing is close enough to ' +
-    'even be scored, "tie" when the top two score identically, and "ranked" otherwise. Read the ' +
+    'Rank the records a phrase could be referring to. THIS IS ADVISORY AND WRITES NOTHING. The ' +
+    'verdict is "no_candidates" when nothing is close enough to even be scored, "tie" when the top ' +
+    'two score identically, "weak" when the best match is poor, and "ranked" otherwise. ' +
+    '**A "weak" verdict means the phrase probably refers to nothing in this store** — measured, ' +
+    'five of seven such phrases do — so do not take rank 1 from a weak result without checking it ' +
+    'yourself. Candidates are still listed, because a few real matches are weak too. Read the ' +
     'margin — the gap between the top two — before treating rank 1 as the answer, because a top ' +
     'score of 0.9 against a runner-up of 0.88 is ambiguous however high it looks. This never ' +
     'asserts that two things are the same; that is the merge tool, and a person decides it.',
@@ -315,7 +318,10 @@ server.registerTool('refers', {
     const r = s.linkMention(mention, { limit });
     return ok({
       mention: r.mention, verdict: r.verdict, margin: r.margin, candidates: r.candidates,
-      note: 'Ranked, not decided. No threshold was applied.',
+      note: r.verdict === 'weak'
+        ? 'WEAK: the best match is poor and this phrase probably refers to nothing here. Candidates '
+          + 'are listed anyway; do not take rank 1 without checking it.'
+        : 'Ranked, not decided. Candidates are never dropped.',
     });
   } catch (e) { return fail(e); }
 });

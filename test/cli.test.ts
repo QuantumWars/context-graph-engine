@@ -166,8 +166,31 @@ describe('Phase 10 — linking reports, and the command line does not decide for
   test('extract shows candidate endpoints with their scores', () => {
     seedThree();
     const r = run('extract', 'note-1');
-    expect(r.out).toContain('subject → ranked');
+    expect(r.out).toMatch(/subject → (ranked|weak)/);
     expect(r.out).toContain('d-friday');
+  });
+
+  test('DEC-017 — a weak verdict is shown as a warning, not as an answer', () => {
+    // The scores here are 0.114 and 0.083. A reader who sees a ranked list and no warning takes
+    // rank 1; the warning is the whole reason the verdict exists.
+    seedThree();
+    const r = run('extract', 'note-1');
+    expect(r.out).toContain('subject → weak');
+    expect(r.out).toContain('probably none of these');
+    // And the candidates are still listed — weak warns, it does not filter.
+    expect(r.out).toContain('d-gate');
+    expect(r.out).toContain('d-friday');
+  });
+
+  test('refers explains a weak result rather than printing a bare verdict', () => {
+    seedThree();
+    const r = run('refers', 'the', 'cafeteria', 'menu');
+    if (r.out.includes('weak')) {
+      expect(r.out).toContain('nothing here matches well');
+      expect(r.out).toContain('probably not the answer');
+    } else {
+      expect(r.out).toContain('no_candidates');
+    }
   });
 
   test('AN AMBIGUOUS ENDPOINT IS NOT PRE-FILLED into the command line', () => {

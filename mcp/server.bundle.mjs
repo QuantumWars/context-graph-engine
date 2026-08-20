@@ -30217,6 +30217,7 @@ function extractWithSuppressed(sourceId, text, rules = DEFAULT_RULES) {
 
 // src/extract/link.ts
 var MENTION_PROBE_ID = "(mention)";
+var LINK_WEAK_SCORE = 0.3;
 function link(mention, records, opts = {}) {
   const probe = { id: MENTION_PROBE_ID, name: mention, type: opts.type ?? "" };
   const keys = blockKeys(probe, { phonetic: true });
@@ -30242,7 +30243,7 @@ function link(mention, records, opts = {}) {
   const top = scored[0];
   const next = scored[1];
   const margin = top === undefined || next === undefined ? null : top.score - next.score;
-  const verdict = top === undefined ? "no_candidates" : margin === 0 ? "tie" : "ranked";
+  const verdict = top === undefined ? "no_candidates" : margin === 0 ? "tie" : top.score < LINK_WEAK_SCORE ? "weak" : "ranked";
   const capped = opts.limit === undefined ? scored : scored.slice(0, opts.limit);
   return { mention, verdict, candidates: capped, margin };
 }
@@ -31214,7 +31215,7 @@ server.registerTool("confirm", {
 });
 server.registerTool("refers", {
   title: "Which records a phrase might refer to",
-  description: "Rank the records a phrase could be referring to. THIS IS ADVISORY AND WRITES NOTHING. No " + 'threshold decides anything: the verdict is "no_candidates" when nothing is close enough to ' + 'even be scored, "tie" when the top two score identically, and "ranked" otherwise. Read the ' + "margin \u2014 the gap between the top two \u2014 before treating rank 1 as the answer, because a top " + "score of 0.9 against a runner-up of 0.88 is ambiguous however high it looks. This never " + "asserts that two things are the same; that is the merge tool, and a person decides it.",
+  description: "Rank the records a phrase could be referring to. THIS IS ADVISORY AND WRITES NOTHING. The " + 'verdict is "no_candidates" when nothing is close enough to even be scored, "tie" when the top ' + 'two score identically, "weak" when the best match is poor, and "ranked" otherwise. ' + '**A "weak" verdict means the phrase probably refers to nothing in this store** \u2014 measured, ' + "five of seven such phrases do \u2014 so do not take rank 1 from a weak result without checking it " + "yourself. Candidates are still listed, because a few real matches are weak too. Read the " + "margin \u2014 the gap between the top two \u2014 before treating rank 1 as the answer, because a top " + "score of 0.9 against a runner-up of 0.88 is ambiguous however high it looks. This never " + "asserts that two things are the same; that is the merge tool, and a person decides it.",
   inputSchema: {
     mention: exports_external.string().min(1).describe("the phrase to look up"),
     limit: exports_external.number().int().min(1).max(50).default(5).describe("display cap, not a decision")
@@ -31228,7 +31229,7 @@ server.registerTool("refers", {
       verdict: r.verdict,
       margin: r.margin,
       candidates: r.candidates,
-      note: "Ranked, not decided. No threshold was applied."
+      note: r.verdict === "weak" ? "WEAK: the best match is poor and this phrase probably refers to nothing here. Candidates " + "are listed anyway; do not take rank 1 without checking it." : "Ranked, not decided. Candidates are never dropped."
     });
   } catch (e) {
     return fail(e);

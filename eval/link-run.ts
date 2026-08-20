@@ -42,7 +42,8 @@ console.log(`\n  ${B}ranking${O}`);
 console.log(`    Top-1        ${pct(s.top1, s.inStore)}   ${D}${s.top1}/${s.inStore}${O}`);
 
 console.log(`\n  ${B}the reject option${O}`);
-console.log(`    NIL correct  ${pct(s.nilCorrect, s.nil)}   ${D}${s.nilCorrect}/${s.nil} answered "nothing here"${O}`);
+console.log(`    NIL flagged  ${pct(s.nilCorrect, s.nil)}   ${D}${s.nilCorrect}/${s.nil} answered "nothing here" or "weak"${O}`);
+console.log(`    ${D}soft cost: ${s.weakButRight} correct answer(s) also flagged weak — candidates kept, so recoverable${O}`);
 
 console.log(`\n  ${B}by family${O}`);
 for (const [family, e] of [...byFamily(judged)].sort()) {

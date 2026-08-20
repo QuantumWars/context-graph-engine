@@ -13,7 +13,8 @@
     "bundle": "bun build mcp/server.ts --target=node --outfile mcp/server.bundle.mjs",
     "mcp": "bun mcp/server.ts",
     "eval:link": "bun eval/link-run.ts",
-    "eval:extract": "bun eval/extract-run.ts"
+    "eval:extract": "bun eval/extract-run.ts",
+    "eval:link-sweep": "bun eval/link-sweep.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

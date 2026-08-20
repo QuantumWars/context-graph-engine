@@ -70,8 +70,10 @@ export interface LinkScore {
   readonly top1: number;
   /** Mentions whose correct answer is "nothing here". */
   readonly nil: number;
-  /** Of those, how many returned `no_candidates`. */
+  /** Of those, how many were flagged — `no_candidates` or `weak`. */
   readonly nilCorrect: number;
+  /** Correct in-store answers ALSO flagged `weak`: the soft cost of the warning. */
+  readonly weakButRight: number;
   /** Gold-bearing mentions the generator lost outright — unrecoverable downstream. */
   readonly missed: readonly string[];
 }
@@ -93,7 +95,10 @@ export function scoreLinking(judged: readonly Judged[], k: number): LinkScore {
     k,
     top1: inStore.filter((j) => j.goldRank === 1).length,
     nil: nil.length,
-    nilCorrect: nil.filter((j) => j.verdict === 'no_candidates').length,
+    // `weak` counts as a reject here because it is the signal a caller acts on. It does not drop
+    // the candidates, which is why `weakButRight` reports the other side of the same rule.
+    nilCorrect: nil.filter((j) => j.verdict === 'no_candidates' || j.verdict === 'weak').length,
+    weakButRight: inStore.filter((j) => j.goldRank === 1 && j.verdict === 'weak').length,
     missed: inStore.filter((j) => j.goldRank === null).map((j) => j.mention),
   };
 }
@@ -143,7 +148,7 @@ export function byFamily(judged: readonly Judged[]): ReadonlyMap<string, { total
     const e = out.get(j.family) ?? { total: 0, top1: 0, nilCorrect: 0 };
     e.total += 1;
     if (j.gold !== null && j.goldRank === 1) e.top1 += 1;
-    if (j.gold === null && j.verdict === 'no_candidates') e.nilCorrect += 1;
+    if (j.gold === null && (j.verdict === 'no_candidates' || j.verdict === 'weak')) e.nilCorrect += 1;
     out.set(j.family, e);
   }
   return out;

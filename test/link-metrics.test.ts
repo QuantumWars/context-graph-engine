@@ -56,7 +56,8 @@ describe('scoreLinking — hand-computed', () => {
       k: 3,
       top1: 1,             // a only
       nil: 2,              // e, f
-      nilCorrect: 1,       // e only
+      nilCorrect: 1,       // e only — f is 'ranked', neither no_candidates nor weak
+      weakButRight: 0,     // no row here is both correct and weak
       missed: ['d'],
     });
   });
@@ -71,7 +72,8 @@ describe('scoreLinking — hand-computed', () => {
 
   test('an empty set scores zero rather than dividing by zero', () => {
     expect(scoreLinking([], 3)).toEqual({
-      inStore: 0, recallAtAny: 0, recallAtK: 0, k: 3, top1: 0, nil: 0, nilCorrect: 0, missed: [],
+      inStore: 0, recallAtAny: 0, recallAtK: 0, k: 3, top1: 0, nil: 0, nilCorrect: 0,
+      weakButRight: 0, missed: [],
     });
   });
 });
@@ -163,7 +165,9 @@ describe('the labelled set itself', () => {
     expect(s.nil).toBe(7);
     expect(s.recallAtAny).toBe(17);           // candidate generation loses nothing
     expect(s.top1).toBe(15);
-    expect(s.nilCorrect).toBe(1);             // the reject option barely works — Phase 12's finding
+    // Phase 15: the `weak` verdict took this from 1/7 to 5/7 without dropping a candidate.
+    expect(s.nilCorrect).toBe(5);
+    expect(s.weakButRight).toBe(2);           // the soft cost, and it is recoverable
     expect(marginSplit(judged).separation).toBeGreaterThan(0);
   });
 });

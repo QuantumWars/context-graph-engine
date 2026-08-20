@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { link } from '../src/extract/link';
+import { link, LINK_WEAK_SCORE } from '../src/extract/link';
 import { similarity, type Candidate } from '../src/resolve/similarity';
 
 /** Phase 10. `DEC-014`: linking reports ranked candidates and never decides identity from a score. */
@@ -16,9 +16,29 @@ const RECORDS: readonly Candidate[] = [
 describe('Task 10.1 — ranked candidates, threshold-free verdicts', () => {
   test('a mention matching a record ranks it first', () => {
     const r = link('checkout outage', RECORDS);
-    expect(r.verdict).toBe('ranked');
     expect(r.candidates[0]!.id).toBe('note-1');
     expect(r.candidates[0]!.score).toBeGreaterThan(0);
+    // `weak` because the score is under LINK_WEAK_SCORE — the ranking is unaffected, which is the
+    // point of labelling rather than rejecting.
+    expect(['ranked', 'weak']).toContain(r.verdict);
+  });
+
+  test('DEC-017 — a weak verdict removes NOTHING from the candidate list', () => {
+    const weak = link('checkout outage', RECORDS);
+    expect(weak.verdict).toBe('weak');
+    expect(weak.candidates[0]!.score).toBeLessThan(LINK_WEAK_SCORE);
+    // Every candidate the scorer produced is still here: `weak` is a warning, not a filter.
+    const all = RECORDS.filter((rec) => link('checkout outage', [rec]).candidates.length > 0);
+    expect(weak.candidates.length).toBe(all.length);
+  });
+
+  test('a strong match is `ranked`, so the verdict really does discriminate', () => {
+    // This fixture has no record named "the checkout service"; `pre-deploy gate` is the one that
+    // genuinely matches something here, at 0.404 against d-gate.
+    const r = link('pre-deploy gate', RECORDS);
+    expect(r.candidates[0]!.id).toBe('d-gate');
+    expect(r.candidates[0]!.score).toBeGreaterThanOrEqual(LINK_WEAK_SCORE);
+    expect(r.verdict).toBe('ranked');
   });
 
   test('a mention matching nothing returns no_candidates, not a poor match', () => {
@@ -78,27 +98,42 @@ describe('Task 10.1 — ranked candidates, threshold-free verdicts', () => {
   });
 });
 
-describe('Task 10.1 — the module introduces no constant', () => {
+describe('Task 10.1 / DEC-017 — the module holds exactly one constant, and it is provenanced', () => {
   const SRC = readFileSync(join(import.meta.dir, '..', 'src', 'extract', 'link.ts'), 'utf8');
   // Only the code, so the doc comment quoting the original's `>= 0.9` is not mistaken for one.
   const CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 
-  test('no exported numeric constant', () => {
-    expect(CODE).not.toMatch(/export\s+const\s+\w+\s*(?::\s*number\s*)?=\s*-?\d/);
+  test('LINK_WEAK_SCORE is the ONLY exported numeric constant', () => {
+    // This guard was written in Phase 10 to assert there were NONE, and it did its job: adding
+    // LINK_WEAK_SCORE in Phase 15 turned it red, which is what forced DEC-017 to be written before
+    // the constant could ship. It is narrowed rather than deleted — a second threshold arriving
+    // quietly is still the thing to prevent.
+    const declared = [...CODE.matchAll(/export\s+const\s+(\w+)\s*(?::\s*number\s*)?=\s*-?\d/g)]
+      .map((m) => m[1] as string);
+    expect(declared).toEqual(['LINK_WEAK_SCORE']);
+    expect(LINK_WEAK_SCORE).toBe(0.3);
   });
 
-  test('no comparison against a decimal literal — the shape a threshold takes', () => {
-    // `DEC-014` forbids one. Two of the four standard NIL techniques need no number, and those are
-    // the two used, so a decimal comparison appearing here means a threshold arrived quietly.
-    expect(CODE).not.toMatch(/[<>]=?\s*-?\d*\.\d/);
+  test('it carries a calibrated provenance note naming the run', () => {
+    // constants-gate checks the label exists; this checks it says which run, because "calibrated"
+    // without a run is the same promise as no provenance at all.
+    expect(SRC).toContain('PROVENANCE: **calibrated**');
+    expect(SRC).toContain('eval/link-sweep.ts');
+  });
+
+  test('the only decimal comparison is the one against that constant', () => {
+    // A second decimal comparison means a threshold arrived without a decision record.
+    const comparisons = [...CODE.matchAll(/[<>]=?\s*-?\d*\.\d/g)].map((m) => m[0]);
+    expect(comparisons).toEqual([]);
+    expect(CODE).toContain('< LINK_WEAK_SCORE');
     expect(CODE.length).toBeGreaterThan(500);          // anti-vacuity: the source really was read
   });
 
-  test('and the scan can find a threshold when one is present', () => {
-    // Proving the guard can fail, without waiting for someone to add one.
-    const withThreshold = `${CODE}\nconst ok = score >= 0.9;`;
-    expect(withThreshold).toMatch(/[<>]=?\s*-?\d*\.\d/);
-    expect(`${CODE}\nexport const LINK_FLOOR = 0.35;`).toMatch(/export\s+const\s+\w+\s*(?::\s*number\s*)?=\s*-?\d/);
+  test('and the scan can find a stray threshold when one is present', () => {
+    expect(`${CODE}\nconst ok = score >= 0.9;`).toMatch(/[<>]=?\s*-?\d*\.\d/);
+    const twoConstants = [...`${CODE}\nexport const LINK_FLOOR = 0.35;`
+      .matchAll(/export\s+const\s+(\w+)\s*(?::\s*number\s*)?=\s*-?\d/g)].map((m) => m[1]);
+    expect(twoConstants).toEqual(['LINK_WEAK_SCORE', 'LINK_FLOOR']);
   });
 });
 

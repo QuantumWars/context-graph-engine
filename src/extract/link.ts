@@ -29,11 +29,6 @@ import { blockKeys } from '../resolve/blocking';
 import { similarity, type Candidate } from '../resolve/similarity';
 
 /**
- * `no_candidates` — the generator returned nothing; the mention refers to nothing here.
- * `tie`          — the two best candidates score identically, so rank 1 is not an answer.
- * `ranked`       — candidates are ordered; the caller decides, with the scores and margin to hand.
- */
-/**
  * The id given to the mention while it is scored against real records.
  *
  * It is never compared — `similarity` reads name, type and props — but it must not look like a
@@ -43,7 +38,39 @@ import { similarity, type Candidate } from '../resolve/similarity';
  */
 export const MENTION_PROBE_ID = '(mention)';
 
-export type LinkVerdict = 'no_candidates' | 'tie' | 'ranked';
+/**
+ * The score below which a top candidate is reported as `weak`.
+ *
+ * PROVENANCE: **calibrated**, 2026-08-20, by `eval/link-sweep.ts` over the 24-mention labelled set
+ * in `eval/linking.ts`. Sweeping a hard reject:
+ *
+ *     none (today)   kept 15/17  nil 0/7  total 62.5%
+ *     score < 0.30   kept 13/17  nil 5/7  total 75.0%   <- best of twelve score cuts
+ *     score < 0.34   kept 11/17  nil 6/7  total 70.8%
+ *     margin < 0.05  kept 11/17  nil 5/7  total 66.7%   <- margin rules are all worse
+ *
+ * 0.30 is the peak. **The populations overlap** — a correct answer scores as low as 0.081 and a NIL
+ * as high as 0.495 — so no cut separates them, and this number is the best of a bad set rather than
+ * a boundary between two things.
+ *
+ * That is exactly why it labels instead of rejecting. A hard cut at 0.30 would have silenced two
+ * correct answers, both rewordings: *"no friday releases"* at 0.081 and *"the follow the sun rota"*
+ * at 0.293. Reporting `weak` and keeping every candidate costs neither, and still flags five of the
+ * seven mentions that refer to nothing.
+ *
+ * Recalibrate with `bun --cwd engine eval/link-sweep.ts` after any change to the scorer.
+ */
+export const LINK_WEAK_SCORE = 0.3;
+
+/**
+ * `no_candidates` — the generator returned nothing; the mention refers to nothing here.
+ * `tie`          — the two best candidates score identically, so rank 1 is not an answer.
+ * `weak`         — a candidate exists but scores below `LINK_WEAK_SCORE`. Most mentions that refer
+ *                  to nothing land here, and so do a few real matches, so it is a warning and never
+ *                  a rejection: every candidate is still returned.
+ * `ranked`       — candidates are ordered; the caller decides, with the scores and margin to hand.
+ */
+export type LinkVerdict = 'no_candidates' | 'tie' | 'weak' | 'ranked';
 
 export interface LinkCandidate {
   readonly id: string;
@@ -121,7 +148,8 @@ export function link(
   const verdict: LinkVerdict =
     top === undefined ? 'no_candidates'
       : margin === 0 ? 'tie'
-        : 'ranked';
+        : top.score < LINK_WEAK_SCORE ? 'weak'
+          : 'ranked';
 
   const capped = opts.limit === undefined ? scored : scored.slice(0, opts.limit);
   return { mention, verdict, candidates: capped, margin };
