@@ -6,13 +6,20 @@ you should not have to ask anyone what happened.
 
 ## Status
 
-**Phases 0–15 closed.** Phase 5 reopened the build for the item the post-mortem named as the
+**Phases 0–16 closed.** Phase 5 reopened the build for the item the post-mortem named as the
 largest gap, and the harness rejected a shipped constant on its first run. Post-mortem: `POSTMORTEM.md`. The ten standing rules moved into
 `engine/CLAUDE.md`.
 
 Phase 8 wired entity resolution into the store, which was the last component with no caller.
 Both defects it found were found by **running the CLI**, not by the suite — including one in the
 error message of the guard the phase existed to build.
+
+Phase 16 built the type awareness Phase 15 prescribed, and **the prescription was wrong**. Type
+inference works and did not fix either target case, because both are *within-type* near-misses — a
+team among teams, a quarter among quarters — and type matching raises confidence on exactly those.
+What fixed them was the margin, which Phase 15 had dismissed after sweeping it as a hard reject and
+then shipping a flag: measured in the form the code actually uses, the margin rule wins outright.
+NIL 71.4% → 85.7%, soft cost halved, Top-1 unchanged.
 
 Phase 15 executed `DEC-014`'s own reversal condition, two phases after it was set. The reject option
 went from 1 of 7 to 5 of 7 **without losing a correct answer**, because the calibration showed a hard
@@ -75,6 +82,7 @@ copying it would have rebuilt the erasure hole `DEC-004` closed.
 | 13 | — | Evaluation harness for extraction | **closed 2026-08-20 — 415 tests; recall 100%, precision 66.7%** |
 | 14 | — | Polarity: negation, hedging and counterfactuals | **closed 2026-08-20 — 431 tests; precision 66.7% → 100%, silence → 100%** |
 | 15 | — | The linking reject option | **closed 2026-08-20 — 436 tests; NIL 14.3% → 71.4%, Top-1 unchanged** |
+| 16 | — | Type awareness for nil-near | **closed 2026-08-20 — 438 tests; NIL → 85.7%; the Phase 15 diagnosis was refuted** |
 
 ## The method
 
@@ -108,6 +116,7 @@ Those are `DEC-002` through `DEC-005` and they were made in Phase 0.
 | `DEC-015` | A merged view is composed at read time, with one rule and every disagreement reported |
 | `DEC-016` | A relation is emitted only when its clause asserts it; scope is a clause, not a window |
 | `DEC-017` | Linking gains a `weak` verdict and one calibrated constant, and still never rejects — amends `DEC-014` |
+| `DEC-018` | A mention's type comes from its head noun; `weak` is a margin, not a score — supersedes `DEC-017`'s constant |
 
 ## Phase 1 — the five algorithms
 
