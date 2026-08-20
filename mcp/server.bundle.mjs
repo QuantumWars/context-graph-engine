@@ -30514,7 +30514,9 @@ class Store {
         ...input.source !== undefined ? { source: input.source } : {},
         ...input.target !== undefined ? { target: input.target } : {},
         ...input.edgeType !== undefined ? { edgeType: input.edgeType } : {},
-        ...input.weight !== undefined ? { weight: input.weight } : {}
+        ...input.weight !== undefined ? { weight: input.weight } : {},
+        ...input.author !== undefined ? { author: input.author } : {},
+        ...input.nodeClass !== undefined ? { nodeClass: input.nodeClass } : {}
       });
       this.records = [...current, built];
       return { append: [built], value: built };

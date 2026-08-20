@@ -22,7 +22,7 @@ are out of the current pass.
 
 ---
 
-## Phase 0 — Lock the decisions, resolve what blocks Phase 1 🛑
+## Phase 0 — Lock the decisions, resolve what blocks Phase 1 🛑 ✅ DONE (DEC-023, DEC-024)
 
 **Goal.** Turn the architecture doc's choices into `DEC` records, and settle the two open questions
 that Phase 1 cannot start without.
@@ -40,7 +40,7 @@ in the open, is what stops two later phases building incompatible schemas.
 
 ---
 
-## Phase 1 — The node-type schema and the `author` field 🛑
+## Phase 1 — The node-type schema and the `author` field 🛑 ✅ DONE (498 tests; real store verifies)
 
 **Goal.** Extend `RecordMeta` so a node declares whether it is re-scannable or attested, and who
 wrote it.

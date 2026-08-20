@@ -43,7 +43,7 @@ function parse(argv: readonly string[]): Args {
 
 const USAGE = `${B}context graph engine${O}
 
-  ${B}engine record${O} <id> --text <s> [--kind node|decision] [--valid-from <iso>] [--valid-until <iso>]
+  ${B}engine record${O} <id> --text <s> [--kind node|decision] [--author <who>] [--valid-from <iso>] [--valid-until <iso>]
   ${B}engine link${O}   <source> <target> --type CAUSED|INFLUENCED|PRECEDENT_FOR [--weight 0..1]
   ${B}engine retract${O} <id> [--reason <s>] [--at <iso>]   close its window at <iso> (default: now);
                                                        the content stays answerable
@@ -105,9 +105,11 @@ async function main(): Promise<number> {
       const text = str('text');
       if (text === undefined) { console.error(`${R}error${O}: --text is required`); return 2; }
       const kind = str('kind') === 'decision' ? 'decision' as const : 'node' as const;
+      const author = str('author');
       const rec = await store.append({
         kind, id, content: { text },
         validFrom: str('valid-from') ?? null, validUntil: str('valid-until') ?? null,
+        ...(author !== undefined ? { author } : {}),
       });
       console.log(`${G}recorded${O} ${kind} ${B}${id}${O}  seq=${rec.seq}  digest=${rec.digest.slice(0, 12)}…`);
       return 0;

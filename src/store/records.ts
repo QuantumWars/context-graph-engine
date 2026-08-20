@@ -16,6 +16,20 @@ export const RECORD_KINDS = ['node', 'edge', 'decision', 'retraction', 'tombston
 export type RecordKind = (typeof RECORD_KINDS)[number];
 
 /**
+ * `DEC-023`: whether a record's integrity comes from the hash chain or from an external source.
+ *
+ * - `attested` — a decision, edge or retrieval, not re-derivable from anywhere else, so the chain
+ *   is its only proof. Lives in `log.jsonl`.
+ * - `re-scannable` — a git commit, file or session, whose truth is git or the filesystem, so it can
+ *   be rebuilt exactly and is not chained. Lives in `derived.jsonl` (from the git-ingest phase).
+ *
+ * **Absent means `attested`.** That default is what makes the 38 records written before this field
+ * existed correct untouched. Always read it through `nodeClassOf`, never `meta.nodeClass` directly,
+ * so the default is applied in exactly one place.
+ */
+export type NodeClass = 'attested' | 're-scannable';
+
+/**
  * A span as it sits in a record's meta: offsets into another record, never that record's text.
  * Mirrors `src/extract/span.ts`'s `Span`; declared here so `records.ts` keeps no import from the
  * extractor, which is a Stage 1 module.
@@ -59,6 +73,18 @@ export interface RecordMeta {
   readonly subjectSpan?: SpanMeta;
   readonly objectSpan?: SpanMeta;
   readonly triggerSpan?: SpanMeta;
+  /**
+   * `DEC-023`. Absent means `attested` — read via `nodeClassOf`, never directly. Inside `meta`, so
+   * inside the digest: a re-scannable record cannot be relabelled attested (or the reverse) without
+   * the chain noticing, on the records that are chained.
+   */
+  readonly nodeClass?: NodeClass;
+  /**
+   * `DEC-024`. Who wrote this — the git author verbatim on an ingested node, the agent's own id
+   * (`claude-opus`, `codex`) on a recorded one. Optional and free text; absence means not recorded
+   * and is never guessed. Inside `meta`, so a claim about authorship is attested.
+   */
+  readonly author?: string;
   [k: string]: Json | undefined;
 }
 
@@ -70,6 +96,16 @@ export interface StoredRecord extends ChainEntry {
 
 export function isRecordKind(v: unknown): v is RecordKind {
   return typeof v === 'string' && (RECORD_KINDS as readonly string[]).includes(v);
+}
+
+/**
+ * A record's effective class, applying `DEC-023`'s default: absent means `attested`.
+ *
+ * The one place the default lives. Reading `meta.nodeClass` directly anywhere else would let a
+ * caller forget the default and treat a legacy record — which has no field — as neither class.
+ */
+export function nodeClassOf(r: { readonly meta: RecordMeta }): NodeClass {
+  return r.meta.nodeClass ?? 'attested';
 }
 
 /**
@@ -99,4 +135,8 @@ export interface RecordMetaInput {
   readonly contentDigest?: string;
   readonly members?: readonly string[];
   readonly canonical?: string;
+  /** `DEC-023`. Omit for an attested record (the default); the git-ingest phase sets `re-scannable`. */
+  readonly nodeClass?: NodeClass;
+  /** `DEC-024`. Free text; the git author on ingest, the agent id on a recorded node. */
+  readonly author?: string;
 }

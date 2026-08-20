@@ -26,7 +26,7 @@ import { resolveSpan, type Span } from '../extract/span';
 import { link, type LinkResult } from '../extract/link';
 import { cluster, merged, SUGGEST_MIN_SCORE, type Cluster } from '../resolve/cluster';
 import type { Candidate } from '../resolve/similarity';
-import type { RecordKind, RecordMeta, RecordMetaInput, SpanMeta, StoredRecord } from './records';
+import type { NodeClass, RecordKind, RecordMeta, RecordMetaInput, SpanMeta, StoredRecord } from './records';
 import { ensureStoreDir, type StorePaths } from './paths';
 
 export type StoreErrorCode =
@@ -77,6 +77,10 @@ export interface RecordInput {
   readonly target?: string;
   readonly edgeType?: string;
   readonly weight?: number;
+  /** `DEC-024`. Who wrote it; free text, optional. */
+  readonly author?: string;
+  /** `DEC-023`. Omit for an attested record (the default). */
+  readonly nodeClass?: NodeClass;
 }
 
 
@@ -231,6 +235,8 @@ export class Store {
         ...(input.target !== undefined ? { target: input.target } : {}),
         ...(input.edgeType !== undefined ? { edgeType: input.edgeType } : {}),
         ...(input.weight !== undefined ? { weight: input.weight } : {}),
+        ...(input.author !== undefined ? { author: input.author } : {}),
+        ...(input.nodeClass !== undefined ? { nodeClass: input.nodeClass } : {}),
       });
       this.records = [...current, built];
       return { append: [built], value: built };
