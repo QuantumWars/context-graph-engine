@@ -6,7 +6,7 @@ you should not have to ask anyone what happened.
 
 ## Status
 
-**Phases 0–18 closed.** Phase 5 reopened the build for the item the post-mortem named as the
+**Phases 0–19 closed.** Phase 5 reopened the build for the item the post-mortem named as the
 largest gap, and the harness rejected a shipped constant on its first run. Post-mortem: `POSTMORTEM.md`. The ten standing rules moved into
 `engine/CLAUDE.md`.
 
@@ -91,6 +91,7 @@ copying it would have rebuilt the erasure hole `DEC-004` closed.
 | 16 | — | Type awareness for nil-near | **closed 2026-08-20 — 438 tests; NIL → 85.7%; the Phase 15 diagnosis was refuted** |
 | 17 | — | Abbreviations | **closed 2026-08-20 — 455 tests; abbreviation 1/2 → 2/2, Top-1 → 94.1%** |
 | 18 | — | The remaining gaps, in one phase | **closed 2026-08-20 — 461 tests; extraction 100%, linking NIL 7/7** |
+| 19 | — | A read-only explorer: React + sigma over a GET-only API | **closed 2026-08-20 — 472 tests; zero mutating routes** |
 
 ## The method
 
@@ -126,6 +127,7 @@ Those are `DEC-002` through `DEC-005` and they were made in Phase 0.
 | `DEC-017` | Linking gains a `weak` verdict and one calibrated constant, and still never rejects — amends `DEC-014` |
 | `DEC-018` | A mention's type comes from its head noun; `weak` is a margin, not a score — supersedes `DEC-017`'s constant |
 | `DEC-019` | An acronym expands per record, and only against a record whose own name supports it |
+| `DEC-020` | The explorer is a separate package that reads over loopback and never writes |
 
 ## Phase 1 — the five algorithms
 

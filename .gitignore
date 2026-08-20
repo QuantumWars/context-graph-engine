@@ -6,3 +6,7 @@ node_modules/
 
 # Worktrees for the per-feature branches live outside the repo, but guard anyway.
 .worktrees/
+
+# explorer (DEC-020)
+explorer/node_modules/
+explorer/dist/

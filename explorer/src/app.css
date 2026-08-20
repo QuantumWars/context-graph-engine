@@ -1,0 +1,36 @@
+:root {
+  --bg: #0f1115; --panel: #171a21; --line: #262b36; --ink: #e6e9ef; --dim: #8b93a7;
+  --node: #7aa2f7; --decision: #bb9af7; --purged: #4a4f5c;
+  --caused: #f7768e; --influenced: #e0af68; --precedent: #9ece6a;
+  --ok: #9ece6a; --bad: #f7768e;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 13px/1.5 ui-sans-serif, -apple-system, "Segoe UI", sans-serif; }
+.app { display: grid; grid-template-columns: 1fr 340px; grid-template-rows: auto 1fr;
+  height: 100vh; }
+header { grid-column: 1 / -1; display: flex; gap: 16px; align-items: center;
+  padding: 10px 16px; border-bottom: 1px solid var(--line); }
+h1 { font-size: 13px; font-weight: 600; margin: 0; letter-spacing: .02em; }
+.chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line);
+  color: var(--dim); }
+.chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.chip.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
+.spacer { flex: 1; }
+label { color: var(--dim); font-size: 11px; display: inline-flex; gap: 6px; align-items: center; }
+input[type=range] { accent-color: var(--node); }
+input[type=search] { background: var(--panel); border: 1px solid var(--line); color: var(--ink);
+  border-radius: 6px; padding: 4px 8px; font: inherit; width: 190px; }
+#graph { width: 100%; height: 100%; min-height: 0; }
+aside { border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 14px; }
+aside h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim);
+  margin: 0 0 8px; }
+dl { margin: 0 0 14px; display: grid; grid-template-columns: 86px 1fr; gap: 4px 10px; }
+dt { color: var(--dim); } dd { margin: 0; word-break: break-word; }
+blockquote { margin: 0; padding: 8px 10px; border-left: 2px solid var(--node);
+  background: #0d0f14; border-radius: 0 6px 6px 0; color: var(--ink); }
+.muted { color: var(--dim); }
+.warn { color: var(--caused); }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; color: var(--dim); font-size: 11px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }

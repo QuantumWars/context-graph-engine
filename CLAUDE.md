@@ -16,6 +16,9 @@ bun run --cwd engine check      # typecheck + suite. The gate before any commit.
 bun run --cwd engine test       # suite only
 bun run --cwd engine typecheck  # tsc --noEmit only
 
+bun --cwd engine explorer/server/server.ts   # the read-only API on 127.0.0.1:4321
+bun --cwd engine/explorer dev                # the UI on 127.0.0.1:5273, proxying /api
+
 bun --cwd engine demo.ts        # list the verification scenarios
 bun --cwd engine demo.ts all    # watch every algorithm work, in memory
 ```
@@ -45,7 +48,8 @@ src/resolve/               Algorithm 6 — blocking, similarity, clustering
 src/extract/               Algorithms 7–8 — spans, rule-based extraction, entity linking
 src/store/                 the append-only log and its rebuilt views
 src/cli.ts                 the seventeen-command CLI
-mcp/                       the MCP surface — the ONLY place with a dependency (DEC-011)
+mcp/                       the MCP surface — third-party code lives here (DEC-011)
+explorer/                  React + sigma read-only UI and its API (DEC-020)
 eval/                      labelled sets, metrics, the sweep
 test/                      one .test.ts per module
 docs/research/             one file per feature, from the research step, with sources

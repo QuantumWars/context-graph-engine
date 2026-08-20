@@ -33,7 +33,9 @@ Three more arrived with the build, each because the store fragments without them
 6. **What in the text supports this edge?** — extraction with span provenance.
 7. **Which record does this phrase refer to?** — entity linking.
 
-The engine is a library, a CLI and an MCP server. It has no network surface and calls no model.
+The engine is a library, a CLI, an MCP server and — since Phase 19 — a **read-only** explorer.
+It calls no model. Its one network surface is the explorer's API, which binds to `127.0.0.1` by
+default, serves `GET` only, and fails closed anywhere else (`DEC-020`).
 
 ## 2. The store
 
@@ -91,6 +93,11 @@ proven; none of the first five changed when they were wired.
 | 6 | Blocking, similarity, clustering | `src/resolve/` | which records look like the same thing? |
 | 7 | Spans and rule-based extraction | `src/extract/span.ts`, `rules.ts`, `polarity.ts` | what does this text actually state? |
 | 8 | Entity linking | `src/extract/link.ts`, `acronym.ts` | which record does this phrase refer to? |
+
+`explorer/` is a React + sigma/graphology view over the same `Store` API the CLI uses. It has **no
+mutating route**: an assertion into this store needs a caller who names it, and a browser button is
+not one (`DEC-020`). `semantica`'s explorer has 34 mutating routes against 44 read routes; ours has
+zero against five.
 
 ### The rules carried over from the teardown
 
