@@ -6,13 +6,18 @@ you should not have to ask anyone what happened.
 
 ## Status
 
-**Phases 0–9 closed.** Phase 5 reopened the build for the item the post-mortem named as the
+**Phases 0–10 closed.** Phase 5 reopened the build for the item the post-mortem named as the
 largest gap, and the harness rejected a shipped constant on its first run. Post-mortem: `POSTMORTEM.md`. The ten standing rules moved into
 `engine/CLAUDE.md`.
 
 Phase 8 wired entity resolution into the store, which was the last component with no caller.
 Both defects it found were found by **running the CLI**, not by the suite — including one in the
 error message of the guard the phase existed to build.
+
+Phase 10 closed the gap Phase 9 named as its own largest — a proposal could say what the text
+stated but not which records the phrases referred to — and closed it without introducing a constant.
+The port's defect is instructive: identity was decided by set-Jaccard over split words, which has no
+order, so two statements with opposite causal direction score exactly 1.0. No threshold fixes that.
 
 Phase 9 built extraction with span provenance, closing finding A-8 and finishing the recon's list.
 Its design insight: because records are immutable, an offset into one is stable, so the quote the
@@ -32,6 +37,7 @@ copying it would have rebuilt the erasure hole `DEC-004` closed.
 | 7 | — | Entity resolution: blocking, similarity, clustering | **closed 2026-08-19 — 290 tests; the recon's take list is complete** |
 | 8 | — | Wire resolution into the store: suggest, merge, resolve reads | **closed 2026-08-20 — 313 tests; purging a merge canonical now refused** |
 | 9 | — | Extraction with span provenance: spans, rules, propose/confirm | **closed 2026-08-20 — 347 tests; A-8 closed, the recon's list finished** |
+| 10 | — | Entity linking: mention → ranked candidate records | **closed 2026-08-20 — 372 tests; closed with NO new constant** |
 
 ## The method
 
@@ -61,6 +67,7 @@ Those are `DEC-002` through `DEC-005` and they were made in Phase 0.
 | `DEC-011` | Third-party code lives only in `mcp/`; `src/` stays dependency-free |
 | `DEC-012` | A merge is an appended assertion about identity; a cluster is derived and never stored |
 | `DEC-013` | A span is a pointer into an immutable record, never a copy; an extractor proposes and never writes |
+| `DEC-014` | Linking reports ranked candidates and never decides identity from a score |
 
 ## Phase 1 — the five algorithms
 
